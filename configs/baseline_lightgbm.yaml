@@ -1,0 +1,17 @@
+model: lightgbm
+model_config:
+  n_estimators: 500
+  learning_rate: 0.05
+  max_depth: 8
+  num_leaves: 64
+  feature_fraction: 0.8
+  bagging_fraction: 0.8
+  objective: "regression_l1"  # MAE
+training:
+  epochs: 0  # no neural network training
+  batch_size: 64
+  lr: 0.0
+evaluation:
+  horizons: [1, 3, 6, 12, 24, 48]
+  metrics: ["mae", "rmse", "r2"]
+seed: 42

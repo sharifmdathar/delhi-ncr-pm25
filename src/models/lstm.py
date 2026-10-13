@@ -1,0 +1,133 @@
+"""Univariate and Multivariate LSTM models for PM2.5 forecasting.
+
+Implements shared LSTM weights across stations (univariate).
+Multivariate version concatenates all stations as input channels.
+"""
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from typing import Optional, Dict
+
+
+class UnivariateLSTM(nn.Module):
+    """Shared LSTM across stations (univariate baseline).
+
+    Input: (batch, seq_len, num_stations, num_features)
+    Uses a single LSTM cell shared across stations, returns predictions per station.
+    """
+
+    def __init__(self, config: dict = None):
+        super().__init__()
+        self.name = "lstm_univariate"
+        self.config = config or {}
+        
+        hidden_size = self.config.get("hidden_size", 128)
+        num_layers = self.config.get("num_layers", 2)
+        dropout = self.config.get("dropout", 0.3)
+        input_size = self.config.get("input_size", 1)
+        num_stations = 70  # hardcoded for Delhi-NCR
+
+        # Shared LSTM
+        self.lstm = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout,
+            batch_first=True,
+        )
+
+        # Output layer per station
+        self.fc = nn.Linear(hidden_size, num_stations)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass.
+
+        Args:
+            x: (batch, seq_len, num_stations, input_size)
+
+        Returns:
+            output: (batch, seq_len, num_stations)
+        """
+        batch_size, seq_len, num_stations, _ = x.shape
+        # Reshape for shared LSTM: treat stations as separate input dimensions
+        # Use mean across stations before LSTM
+        x_shared = x.mean(dim=2, keepdim=False)  # (batch, seq_len, input_size)
+        lstm_out, _ = self.lstm(x_shared)  # (batch, seq_len, hidden_size)
+
+        # Map LSTM output to stations
+        preds = self.fc(lstm_out)  # (batch, seq_len, num_stations)
+        return preds
+
+
+class MultivariateLSTM(nn.Module):
+    """Multivariate LSTM that processes all stations jointly.
+
+    Input: (batch, seq_len, num_stations, num_features)
+    Treats each station as a separate channel.
+    """
+
+    def __init__(self, config: dict = None):
+        super().__init__()
+        self.name = "lstm_multivariate"
+        self.config = config or {}
+
+        hidden_size = self.config.get("hidden_size", 128)
+        num_layers = self.config.get("num_layers", 2)
+        dropout = self.config.get("dropout", 0.3)
+        input_size = self.config.get("input_size", 1)
+        num_stations = 70  # hardcoded
+
+        # LSTM for each station channel (shared layers, separate input projection)
+        self.lstm = nn.LSTM(
+            input_size=input_size * num_stations,  # flatten stations
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout,
+            batch_first=True,
+        )
+
+        self.fc = nn.Linear(hidden_size, num_stations * 48)  # 48 horizons
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass.
+
+        Args:
+            x: (batch, seq_len, num_stations, input_size)
+
+        Returns:
+            output: (batch, 48, num_stations)
+        """
+        batch_size, seq_len, num_stations, input_size = x.shape
+        # Flatten stations into feature dimension
+        x_flat = x.reshape(batch_size, seq_len, -1)  # (batch, seq_len, stations*input_size)
+        lstm_out, _ = self.lstm(x_flat)  # (batch, seq_len, hidden_size)
+
+        # Take last hidden state for predictions
+        preds = self.fc(lstm_out[:, -1:, :])  # (batch, 1, stations*48)
+        preds = preds.reshape(batch_size, 48, num_stations)  # (batch, 48, stations)
+        return preds
+
+
+# Factory function
+def build_lstm_model(model_type: str, config: dict = None, multivariate: bool = False):
+    """Build LSTM model.
+
+    Args:
+        model_type: "lstm_univariate" or "lstm_multivariate"
+        config: model configuration
+        multivariate: if True, use multivariate LSTM
+
+    Returns:
+        model: torch.nn.Module
+    """
+    if model_type not in ["lstm_univariate", "lstm_multivariate"]:
+        raise ValueError(f"Unknown LSTM model type: {model_type}")
+
+    if model_type == "lstm_univariate":
+        return UnivariateLSTM(config)
+    elif model_type == "lstm_multivariate":
+        if multivariate:
+            return MultivariateLSTM(config)
+        else:
+            return UnivariateLSTM(config)
