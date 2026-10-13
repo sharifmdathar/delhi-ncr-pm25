@@ -11,7 +11,6 @@ tqdm
 pyyaml
 pytorch-lightning
 hydra-core
-hydra-joblib
 opencv-python
 xgboost
 lightgbm

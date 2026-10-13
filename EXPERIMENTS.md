@@ -48,7 +48,7 @@ This file logs every experiment run. Update after each run.
 - Normalization stats (fit on train only): mean=4.3362, std=0.5184
 - Note: Real data sources unavailable; using synthetic fallback per AGENTS.md rule 4 (document and continue)
 
-**Status:** Dataset frozen; pipeline verified
+**Status:** Dataset frozen; pipeline verified; venv recreated with python=3.10; torch install in progress
 **Notes:** Waiting for real CPCB/API access to rebuild with actual measurements.
 
 ---
