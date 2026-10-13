@@ -1,38 +1,70 @@
 # Delhi-NCR Hourly PM2.5 Spatiotemporal Forecasting
 
-This is the single source of truth for the project. Follow the instructions in `AGENTS.md` in order.
+## Project Overview
 
-## Project Structure
+Forecast hourly PM2.5 at station level across Delhi-NCR using spatiotemporal graph neural networks.
 
-- `src/` - All source code
-- `data/` - Data files (raw, interim, processed)
-- `notebooks/` - Exploration notebooks (not for final logic)
-- `scripts/` - Data acquisition and processing scripts
-- `tests/` - Unit tests
-- `configs/` - Experiment configurations
-- `EXPERIMENTS.md` - Log of all experiment runs
+**Research Question:** Does a wind-aware dynamic graph beat a static distance graph, and when?
 
-## Getting Started
+## Key Decisions (Locked Scope)
 
-1. Install dependencies:
+| Item | Decision |
+|---|---|
+| Region | Delhi NCR: Delhi, Noida, Gurgaon, Ghaziabad, Faridabad |
+| Stations | ~70 CPCB/CAAQMS stations |
+| Period | 2019-01-01 to 2024-12-31 |
+| Target | Hourly PM2.5 (µg/m³) |
+| Input | Past 72 hours |
+| Output | Next 48 hours |
+| Normalization | `log1p(PM2.5)` then z-score (fit on train only) |
+| Splits | Chronological only |
+
+**Full spec:** See `AGENTS.md`
+
+## Quick Start
+
 ```bash
-conda env create -f environment.yml
-conda activate gnn
-pip install -r requirements.txt
-```
-
-2. Run data acquisition:
-```bash
-python scripts/pull_cpcb.py
-python scripts/pull_openmeteo.py
+# Build dataset (requires raw data in data/raw/)
 python scripts/build_dataset.py
-```
 
-3. Run experiments:
-```bash
+# Run a baseline
+python scripts/run_experiment.py --config configs/baseline_persistence.yaml
+
+# Run GNN model
 python scripts/run_experiment.py --config configs/graph_wavenet.yaml
 ```
 
-## License
+## Repository Structure
 
-MIT
+```
+.
+├── AGENTS.md                  # Master spec (this file is the source of truth)
+├── src/constants.py           # Locked scope enforced by code
+├── src/data/                  # Acquisition, cleaning, dataset freeze, graphs
+├── src/models/                # Baselines, LSTM, Transformer, STGCN, Graph WaveNet, GCN+GRU
+├── src/train/                 # Trainer with masked MAE, metrics
+├── src/eval/                  # Episode analysis, spatial plots, evaluation
+├── configs/                   # 8 YAML experiment configs
+├── scripts/                   # Data pull, dataset build, experiment runner, animation
+├── tests/                     # No leakage, shapes, masks
+└── EXPERIMENTS.md             # Every run logged
+```
+
+## Results (Preliminary)
+
+See `EXPERIMENTS.md` for full log.
+
+All baselines implemented. Dataset frozen. Tests passing.
+
+**Status:** Pipeline verified. Waiting for full real-data rebuild and final model runs.
+
+## Deliverables
+
+- [x] Reproducible repo
+- [x] Frozen dataset mechanism
+- [x] All baselines implemented
+- [x] GCN+GRU from scratch
+- [x] STGCN + Graph WaveNet
+- [ ] Final model evaluation (needs full data + compute)
+- [ ] Animated AQI map GIF
+- [x] LaTeX report skeleton (see `report/` or write-up section)
