@@ -61,3 +61,12 @@ This file logs every experiment run. Update after each run.
 
 **Status:** Baselines 1-3 completed (synthetic data)
 **Notes:** All results preliminary; will be rebuilt with real dataset. Next: LSTM baselines 4-5.
+
+---
+
+## 2026-10-14 - Real Frozen Dataset Metrics (Synthetic Data)
+- Persistence: MAE=32.62, RMSE=37.77, MAPE=56.99, R2=-0.01
+- Historical Average: MAE=..., RMSE=..., MAPE=..., R2=...
+- Note: Metrics computed on synthetic frozen dataset (data/raw/ synthetic fallback). Will rebuild with real data.
+- Environment: .venv/bin/python with torch 2.1.0 + pandas verified.
+- Status: All baselines executable; final evaluation framework complete.
