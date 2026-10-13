@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "delhi-ncr-pm25-forecast"
+version = "0.1.0"
+description = "Spatiotemporal forecasting of hourly PM2.5 across Delhi-NCR"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "torch==2.1.0",
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "matplotlib",
+    "seaborn",
+    "plotly",
+    "tqdm",
+    "pyyaml",
+    "pytorch-lightning",
+    "hydra-core",
+    "opencv-python",
+    "xgboost",
+    "lightgbm",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "jupyter", "notebook"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "scripts*"]
