@@ -26,8 +26,8 @@ class UnivariateLSTM(nn.Module):
         num_layers = self.config.get("num_layers", 2)
         dropout = self.config.get("dropout", 0.3)
         input_size = self.config.get("input_size", 1)
-        num_stations = 70  # hardcoded for Delhi-NCR
-        output_horizons = 48  # 48-hour forecast
+        num_stations = self.config.get("num_stations", 70)
+        output_horizons = self.config.get("output_horizons", 48)
 
         # Shared LSTM
         self.lstm = nn.LSTM(
@@ -80,7 +80,8 @@ class MultivariateLSTM(nn.Module):
         num_layers = self.config.get("num_layers", 2)
         dropout = self.config.get("dropout", 0.3)
         input_size = self.config.get("input_size", 1)
-        num_stations = 70  # hardcoded
+        num_stations = self.config.get("num_stations", 70)
+        output_horizons = self.config.get("output_horizons", 48)
 
         # LSTM for each station channel (shared layers, separate input projection)
         self.lstm = nn.LSTM(
@@ -91,7 +92,9 @@ class MultivariateLSTM(nn.Module):
             batch_first=True,
         )
 
-        self.fc = nn.Linear(hidden_size, num_stations * 48)  # 48 horizons
+        self.fc = nn.Linear(hidden_size, num_stations * output_horizons)
+        self.num_stations = num_stations
+        self.output_horizons = output_horizons
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass.
@@ -109,7 +112,7 @@ class MultivariateLSTM(nn.Module):
 
         # Take last hidden state for predictions
         preds = self.fc(lstm_out[:, -1:, :])  # (batch, 1, stations*48)
-        preds = preds.reshape(batch_size, 48, num_stations)  # (batch, 48, stations)
+        preds = preds.reshape(batch_size, self.output_horizons, num_stations)  # (batch, 48, stations)
         return preds
 
 

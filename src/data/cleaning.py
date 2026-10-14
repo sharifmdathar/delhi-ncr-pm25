@@ -39,11 +39,64 @@ class DataCleaner:
     def load_raw(self, raw_dir: Path = None) -> pd.DataFrame:
         """Load raw data from the raw directory.
         
-        Uses synthetic fallback covering 2019-2024 (Kaggle data only goes to 2020).
+        Uses combined real data (OpenCity 2024 + Kaggle 2019-2020) + synthetic fallback for 2021-2023.
         """
         project_root = Path(__file__).parent.parent.parent
         raw_dir = raw_dir or project_root / "data" / "raw"
         
+        # Try combined real data first
+        real_path = project_root / "data" / "raw" / "cpcb_hourly_real.csv"
+        if real_path.exists():
+            print("Loading combined real data (Kaggle 2019-2020 + OpenCity 2024)...")
+            df = pd.read_csv(real_path, low_memory=False)
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            print(f"Loaded real data: {len(df)} rows, {df['station_id'].nunique()} stations")
+            print(f"Date range: {df['timestamp'].min()} to {df['timestamp'].max()}")
+            
+            # Add synthetic weather for stations missing weather
+            weather_path = project_root / "data" / "raw" / "weather.csv"
+            if weather_path.exists():
+                weather_df = pd.read_csv(weather_path)
+                weather_df["timestamp"] = pd.to_datetime(weather_df["timestamp"])
+                
+                weather_cols = ["temp_c", "rh", "wind_u", "wind_v", "rainfall"]
+                missing_weather = [c for c in weather_cols if c not in df.columns]
+                if missing_weather:
+                    merged = pd.merge(df, weather_df, on=["station_id", "timestamp"], how="left")
+                    for col in weather_cols:
+                        if col in merged.columns:
+                            merged[col] = merged.groupby("station_id")[col].ffill().bfill()
+                    return merged
+            
+            # Add synthetic weather if no weather file
+            return self._add_synthetic_weather(df)
+        
+        # Fallback to filtered combined data
+        filtered_path = project_root / "data" / "raw" / "cpcb_hourly_filtered.csv"
+        if filtered_path.exists():
+            print("Loading filtered real+synthetic data (70 stations, 2019-2024)...")
+            df = pd.read_csv(filtered_path, low_memory=False)
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            
+            # Add synthetic weather for stations missing weather
+            weather_path = project_root / "data" / "raw" / "weather.csv"
+            if weather_path.exists():
+                weather_df = pd.read_csv(weather_path)
+                weather_df["timestamp"] = pd.to_datetime(weather_df["timestamp"])
+                
+                weather_cols = ["temp_c", "rh", "wind_u", "wind_v", "rainfall"]
+                missing_weather = [c for c in weather_cols if c not in df.columns]
+                if missing_weather:
+                    merged = pd.merge(df, weather_df, on=["station_id", "timestamp"], how="left")
+                    for col in weather_cols:
+                        if col in merged.columns:
+                            merged[col] = merged.groupby("station_id")[col].ffill().bfill()
+                    return merged
+            
+            # Add synthetic weather if no weather file
+            return self._add_synthetic_weather(df)
+        
+        # Fallback to old synthetic
         print("Loading synthetic fallback data (covers 2019-2024)...")
         return self._load_synthetic(raw_dir)
 

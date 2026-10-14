@@ -30,7 +30,7 @@ class GraphWaveNet(nn.Module):
         self.layers = self.config.get("layers", 4)
         self.dropout = self.config.get("dropout", 0.3)
         
-        self.num_nodes = 70  # fixed for Delhi-NCR
+        self.num_nodes = self.config.get("num_nodes", 70)  # dynamic, default 70
         self.num_features = 1  # PM2.5 only for now; can extend
         
         # Graph adjacency (will be set from data)
@@ -172,7 +172,7 @@ class GraphWaveNet(nn.Module):
         x = x[:, :, -1]  # (B*N, output_horizons)
         
         # Reshape to (batch, output_timesteps, num_nodes)
-        x = x.view(batch_size, self.num_nodes, self.num_timesteps_output).transpose(1, 2)
+        x = x.view(batch_size, self.num_timesteps_output, self.num_nodes)
         return x
 
 

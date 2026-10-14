@@ -30,9 +30,9 @@ class TemporalTransformer(nn.Module):
         num_heads = self.config.get("num_heads", 4)
         dropout = self.config.get("dropout", 0.3)
         input_size = self.config.get("input_size", 1)
-        num_stations = 70  # hardcoded
-        seq_len = 72
-        pred_horizons = 48
+        num_stations = self.config.get("num_stations", 70)
+        seq_len = self.config.get("seq_len", 72)
+        pred_horizons = self.config.get("pred_horizons", 48)
 
         # Input projection
         self.input_proj = nn.Linear(input_size * num_stations, hidden_size)
@@ -53,6 +53,9 @@ class TemporalTransformer(nn.Module):
 
         # Output projection
         self.output_proj = nn.Linear(hidden_size, num_stations * pred_horizons)
+
+        self.num_stations = num_stations
+        self.pred_horizons = pred_horizons
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass.
@@ -82,7 +85,7 @@ class TemporalTransformer(nn.Module):
 
         # Project to output
         preds = self.output_proj(x)  # (batch, stations * pred_horizons)
-        preds = preds.reshape(batch_size, 48, num_stations)  # (batch, 48, stations)
+        preds = preds.reshape(batch_size, self.pred_horizons, self.num_stations)  # (batch, 48, stations)
 
         return preds
 
