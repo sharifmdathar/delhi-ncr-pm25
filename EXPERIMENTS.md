@@ -130,3 +130,42 @@ This file logs every experiment run. Update after each run.
 - Denormalized MAE: Historical Avg 35% lower than Persistence
 
 **Next:** LSTM baselines 4-5 (univariate + multivariate)
+
+---
+
+## 2026-10-14 - Station Coordinate Fix & 42-Station Dataset
+
+**Problem:** 
+- stations.csv had duplicate DL035 (Sirifort + Sonia Vihar), missing DL039, and 4 NCR rows (HR011-HR014) without data files
+- Coordinates were from memory ("approx"), not authoritative — risk for wind-aware graph where Delhi stations are 3-6 km apart
+
+**Fix:**
+- Fixed stations.csv: 38 Delhi (DL001-DL038) + 4 NCR (HR011-HR014) = 42 stations with real data
+- Removed duplicate DL035, added missing DL039 (Wazirpur), removed NCR rows without data files
+- All coordinates marked `coord_source=approx` — flagged for verification against CPCB/OpenAQ metadata
+- Added `scripts/check_stations.py` for automated validation (bounds, swapped lat/lon, close pairs, isolated stations, reference comparison)
+
+**Verification:**
+- `check_stations.py` passes with 1 warning: HR011/HR014 close (expected, both Faridabad)
+- Dataset rebuilt: X_full=[52585, 42, 5], y_full=[52585, 42], 42 stations
+- All models updated for dynamic station count (42): LSTM, Transformer, STGCN, Graph WaveNet
+
+**Dataset (Rebuilt with Real Data):**
+- `X_full`: [52585, 42, 5] — 52585 hourly timesteps (2019-2024), 42 stations, 5 features (pm25 + 4 weather)
+- `y_full`: [52585, 42] — normalized PM2.5 targets
+- Stations: 42 real (38 DL + 4 HR)
+- Chronological splits: Train 2019-2022 (~35K windows), Val 2023 (~8.6K), Test 2024 (~8.7K)
+- Normalization: log1p + z-score fitted on train only (mean=4.0918, std=0.6260)
+- WindowDS: on-the-fly slicing verified (x=[72,42,5], y=[48,42])
+
+**Constants Updated:**
+- STATIONS = 42 (was 70)
+- Graph adjacency: 42×42 (was 70×70)
+
+**Models Updated for Dynamic Station Count:**
+- LSTM Univariate/Multivariate: num_stations param
+- Transformer: num_stations param
+- STGCN: dynamic adj buffer
+- Graph WaveNet: num_nodes param, output reshape fixed
+
+**Status:** 42-station pipeline end-to-end with real data. Ready for baseline evaluation and model training.

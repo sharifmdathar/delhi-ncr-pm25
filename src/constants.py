@@ -3,7 +3,7 @@
 
 # --- Regions & Stations ---
 REGION = "delhi_ncr"
-STATIONS = 70  # ~70 CPCB/CAAQMS stations across Delhi NCR
+STATIONS = 42  # 38 Delhi (DL001-DL038) + 4 NCR (HR011-HR014) stations with real data
 
 # --- Period ---
 START_DATE = "2019-01-01"
@@ -38,7 +38,7 @@ NORMALIZE_TARGET = True  # apply log1p + z-score to PM2.5
 NORMALIZE_FEATURES = True  # optionally normalize weather features too
 
 # --- Graph Construction ---
-# Graph adjacency matrices are 70×70 (one per station)
+# Graph adjacency matrices are 42×42 (one per station)
 # All graphs built on train-split data only — never use val/test info.
 
 # Distance graph: Gaussian kernel on station coordinates
