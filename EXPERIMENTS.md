@@ -70,3 +70,23 @@ This file logs every experiment run. Update after each run.
 - Note: Metrics computed on synthetic frozen dataset (data/raw/ synthetic fallback). Will rebuild with real data.
 - Environment: .venv/bin/python with torch 2.1.0 + pandas verified.
 - Status: All baselines executable; final evaluation framework complete.
+
+---
+
+## 2026-10-14 - Architectural Fix: Continuous Arrays + On-the-Fly Windowing
+
+**Problem:** Materializing all windows (3.6M stride-1 windows) caused OOM (414 GiB allocation). Stride sampling threw away data.
+
+**Solution:** Store continuous arrays once (~90 MB), slice windows on-the-fly:
+- `build_dataset.py` saves: `X_full[T,N,F]`, `y_full[T,N]`, masks, timestamps, coords
+- `WindowDS` (src/data/window_dataset.py) slices `(input, target, mask)` windows on-the-fly
+- Split by time ranges (train 2019-2022, val 2023, test 2024) — no leakage
+- Normalization stats fitted on train range only
+
+**Result:** 
+- Frozen dataset: `X_full=[52585,70,6]`, `y_full=[52585,70]`
+- ~35K train windows, ~8.6K val, ~8.7K test — no OOM
+- Window slicing verified: x=[72,70,6], y=[48,70]
+- All tests pass; torch/numpy version warning only (non-blocking)
+
+**Status:** Architecture fixed; pipeline ready for real data rebuild.
