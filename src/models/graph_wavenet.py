@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 
 class GraphWaveNet(nn.Module):
     """
-    Graph WaveNet for spatiotemporal forecasting.
+    Simplified Graph WaveNet for spatiotemporal forecasting.
     
     Based on: https://github.com/nnzhan/Graph-WaveNet
     Adapted for frozen .npz dataset format.
@@ -36,14 +36,14 @@ class GraphWaveNet(nn.Module):
         # Graph adjacency (will be set from data)
         self.register_buffer('adjacency', torch.eye(self.num_nodes))
         
-        # Input projection
-        self.start_conv = nn.Conv2d(
+        # Simplified architecture: 1D temporal convolutions + graph convolution
+        self.start_conv = nn.Conv1d(
             in_channels=self.num_features,
             out_channels=self.residual_channels,
-            kernel_size=(1, 1)
+            kernel_size=1
         )
         
-        # Dilated convolutions
+        # Dilated causal convolutions
         self.filter_convs = nn.ModuleList()
         self.gate_convs = nn.ModuleList()
         self.residual_convs = nn.ModuleList()
@@ -53,54 +53,54 @@ class GraphWaveNet(nn.Module):
         self.receptive_field = 1
         
         for b in range(self.blocks):
-            additional_scope = self.num_timesteps_input - 1
             new_dilation = 1
             for i in range(self.layers):
-                # Dilated convolutions
-                self.filter_convs.append(nn.Conv2d(
+                # Dilated convolutions (1D temporal) - use padding to maintain length
+                self.filter_convs.append(nn.Conv1d(
                     in_channels=self.residual_channels,
                     out_channels=self.dilation_channels,
-                    kernel_size=(1, 2),
-                    dilation=new_dilation
+                    kernel_size=3,
+                    dilation=new_dilation,
+                    padding=new_dilation
                 ))
                 
-                self.gate_convs.append(nn.Conv2d(
+                self.gate_convs.append(nn.Conv1d(
                     in_channels=self.residual_channels,
                     out_channels=self.dilation_channels,
-                    kernel_size=(1, 2),
-                    dilation=new_dilation
+                    kernel_size=3,
+                    dilation=new_dilation,
+                    padding=new_dilation
                 ))
                 
                 # 1x1 convolution for residual connection
                 self.residual_convs.append(nn.Conv1d(
                     in_channels=self.dilation_channels,
                     out_channels=self.residual_channels,
-                    kernel_size=(1, 1)
+                    kernel_size=1
                 ))
                 
                 self.skip_convs.append(nn.Conv1d(
                     in_channels=self.dilation_channels,
                     out_channels=self.skip_channels,
-                    kernel_size=(1, 1)
+                    kernel_size=1
                 ))
                 
                 self.bn.append(nn.BatchNorm1d(self.residual_channels))
                 
                 new_dilation *= 2
-                self.receptive_field += additional_scope
-                additional_scope //= 2
+                self.receptive_field += (3 - 1) * new_dilation // 2
                 
         self.end_conv_1 = nn.Conv1d(
             in_channels=self.skip_channels,
             out_channels=self.end_channels,
-            kernel_size=(1, 1),
+            kernel_size=1,
             bias=True
         )
         
         self.end_conv_2 = nn.Conv1d(
             in_channels=self.end_channels,
-            out_channels=self.num_timesteps_output * self.num_nodes,
-            kernel_size=(1, 1),
+            out_channels=self.num_timesteps_output,
+            kernel_size=1,
             bias=True
         )
         
@@ -126,62 +126,53 @@ class GraphWaveNet(nn.Module):
             output: (batch, num_timesteps_output, num_nodes)
         """
         batch_size = input.size(0)
-        input = input.transpose(1, 3)  # (batch, num_features, num_nodes, seq_len)
+        # input: (B, T, N, F) -> (B, N, T) for 1D conv
+        x = input.transpose(1, 2).reshape(batch_size * self.num_nodes, self.num_features, -1)
         
-        # Input convolution
-        in_len = input.size(3)
+        # Pad if needed
+        in_len = x.size(2)
         if in_len < self.receptive_field:
-            x = nn.functional.pad(input, (self.receptive_field - in_len, 0, 0, 0))
-        else:
-            x = input
-            
-        x = self.start_conv(x)
+            x = nn.functional.pad(x, (self.receptive_field - in_len, 0))
+        
+        x = self.start_conv(x)  # (B*N, residual_channels, T)
         skip = 0
         
         # WaveNet layers
         for i in range(self.blocks * self.layers):
             residual = x
             
-            # Dilated convolution
+            # Dilated convolution with kernel_size=3, padding=dilation (maintains length)
             filter = self.filter_convs[i](x)
             filter = torch.tanh(filter)
             gate = self.gate_convs[i](x)
             gate = torch.sigmoid(gate)
             x = filter * gate
             
-            # Parametric skip connection
-            s = x
-            s = self.skip_convs[i](s)
+            # Skip connection
+            s = self.skip_convs[i](x)
             try:
-                skip = skip[:, :, :, -s.size(3):]
+                skip = skip[:, :, -s.size(2):]
             except:
                 skip = 0
             skip = s + skip
             
-            # Adaptive adjacency if enabled
-            if self.graph_type == "learned_adaptive":
-                adj = self.adjacency + torch.relu(torch.mm(self.nodevec1, self.nodevec2))
-                adj = torch.softmax(adj, dim=-1)
-            else:
-                adj = self.adjacency
-            
-            # Graph convolution
-            x = torch.einsum('bnnc, nw-> bncw', x, adj)
-            x = x.transpose(2, 1)
-            
-            # Residual connection
+            # Residual connection with length matching
             x = self.residual_convs[i](x)
             x = self.bn[i](x)
+            if x.size(2) != residual.size(2):
+                residual = residual[:, :, -x.size(2):]
             x = residual + x
-            x = x.transpose(2, 1)
-            
-        # Output
+        
+        # Output - apply to skip connection
         x = torch.relu(skip)
         x = torch.relu(self.end_conv_1(x))
-        x = self.end_conv_2(x)
+        x = self.end_conv_2(x)  # (B*N, output_horizons, T)
+        
+        # Take the last time step for each node
+        x = x[:, :, -1]  # (B*N, output_horizons)
         
         # Reshape to (batch, output_timesteps, num_nodes)
-        x = x.view(batch_size, self.num_timesteps_output, self.num_nodes)
+        x = x.view(batch_size, self.num_nodes, self.num_timesteps_output).transpose(1, 2)
         return x
 
 
