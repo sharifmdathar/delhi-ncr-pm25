@@ -109,3 +109,24 @@ This file logs every experiment run. Update after each run.
 - WindowDS: on-the-fly slicing verified (x=[72,70,6], y=[48,70])
 
 **Status:** Pipeline end-to-end with real data. Ready for baseline evaluation and model training.
+
+---
+
+## 2026-10-14 - Real Baseline Evaluation (on Real Test Data)
+
+**Test Split:** 2024 (8665 windows × 48 horizons × 70 stations)
+
+| Model | MAE (norm) | RMSE (norm) | R² (norm) | MAE (µg/m³) | RMSE (µg/m³) | R² (µg/m³) |
+|-------|-----------|------------|-----------|-------------|--------------|------------|
+| Persistence | 1.29 | 1.53 | -0.76 | 173.5 | 225.2 | -1.17 |
+| Historical Avg | 0.68 | 0.81 | 0.51 | 113.5 | 144.7 | 0.11 |
+
+**Key Observations:**
+- Historical Average beats Persistence on all metrics
+- Historical Avg has positive R² on normalized data (0.51), slightly positive on denormalized (0.11)
+- Persistence has negative R² on both scales
+- MAPE extremely high on denormalized (division by near-zero PM2.5 values) — not reliable metric
+- Normalized MAE: Historical Avg 47% lower than Persistence
+- Denormalized MAE: Historical Avg 35% lower than Persistence
+
+**Next:** LSTM baselines 4-5 (univariate + multivariate)
