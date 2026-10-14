@@ -48,26 +48,65 @@ class DataCleaner:
         return self._load_synthetic(raw_dir)
 
     def _load_synthetic(self, raw_dir: Path) -> pd.DataFrame:
-        """Load synthetic fallback data with proper timestamp merge."""
+        """Load filtered combined real+synthetic data (70 stations, 2019-2024)."""
         project_root = Path(__file__).parent.parent.parent
+        
+        # Try filtered combined data first
+        filtered_path = project_root / "data" / "raw" / "cpcb_hourly_filtered.csv"
+        if filtered_path.exists():
+            print("Loading filtered real+synthetic data (70 stations, 2019-2024)...")
+            df = pd.read_csv(filtered_path, low_memory=False)
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            
+            # Add synthetic weather for stations missing weather
+            weather_path = project_root / "data" / "raw" / "weather.csv"
+            if weather_path.exists():
+                weather_df = pd.read_csv(weather_path)
+                weather_df["timestamp"] = pd.to_datetime(weather_df["timestamp"])
+                
+                weather_cols = ["temp_c", "rh", "wind_u", "wind_v", "rainfall"]
+                missing_weather = [c for c in weather_cols if c not in df.columns]
+                if missing_weather:
+                    merged = pd.merge(df, weather_df, on=["station_id", "timestamp"], how="left")
+                    for col in weather_cols:
+                        if col in merged.columns:
+                            merged[col] = merged.groupby("station_id")[col].ffill().bfill()
+                    return merged
+            
+            # Add synthetic weather if no weather file
+            return self._add_synthetic_weather(df)
+        
+        # Fallback to old synthetic
         cpcb_df = pd.read_csv(project_root / "data" / "raw" / "cpcb_hourly.csv")
         weather_df = pd.read_csv(project_root / "data" / "raw" / "weather.csv")
         
-        # Ensure datetime
         cpcb_df["timestamp"] = pd.to_datetime(cpcb_df["timestamp"])
         weather_df["timestamp"] = pd.to_datetime(weather_df["timestamp"])
         
-        # Merge on both station_id and timestamp (exact match)
-        # Since weather is sparse (10h intervals), we'll merge on timestamp too
         merged = pd.merge(cpcb_df, weather_df, on=["station_id", "timestamp"], how="left")
-        
-        # Forward fill weather for missing hours
         weather_cols = ["temp_c", "rh", "wind_u", "wind_v", "rainfall"]
         for col in weather_cols:
             if col in merged.columns:
                 merged[col] = merged.groupby("station_id")[col].ffill().bfill()
         
         return merged
+
+    def _add_synthetic_weather(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add synthetic weather features (placeholder for real weather)."""
+        np.random.seed(42)
+        n = len(df)
+        doy = df["timestamp"].dt.dayofyear
+        doy_rad = 2 * np.pi * doy / 365.25
+        
+        df["temp_c"] = 25 + 10 * np.sin(doy_rad) + np.random.normal(0, 3, n)
+        df["rh"] = 50 + 20 * np.sin(doy_rad + np.pi) + np.random.normal(0, 10, n)
+        df["rh"] = df["rh"].clip(0, 100)
+        df["wind_u"] = np.random.normal(1, 2, n)
+        df["wind_v"] = np.random.normal(-1, 2, n)
+        df["rainfall"] = np.random.exponential(0.5, n)
+        df["rainfall"] = np.where(np.random.random(n) < 0.95, 0, df["rainfall"])
+        
+        return df
 
     # ------------------------------------------------------------------ 
     # Cleaning

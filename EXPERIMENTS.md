@@ -90,3 +90,22 @@ This file logs every experiment run. Update after each run.
 - All tests pass; torch/numpy version warning only (non-blocking)
 
 **Status:** Architecture fixed; pipeline ready for real data rebuild.
+
+---
+
+## 2026-10-14 - Real Data Integration Complete
+
+**Data Sources Integrated:**
+- OpenCity: 38 Delhi stations (2017-2023) - parsed from wide-format monthly CSVs
+- Kaggle: 4 NCR stations (HR011-HR014, 2019-2020) - from station_hour.csv
+- Synthetic fallback: 28 stations for 2024 and coverage completion
+
+**Frozen Dataset (Rebuilt with Real Data):**
+- `X_full`: [52585, 70, 6] — 52585 hourly timesteps (2019-2024), 70 stations, 6 features
+- `y_full`: [52585, 70] — normalized PM2.5 targets
+- Stations: 42 real (38 DL + 4 HR) + 28 synthetic
+- Chronological splits: Train 2019-2022 (~35K windows), Val 2023 (~8.6K), Test 2024 (~8.7K)
+- Normalization: log1p + z-score fitted on train only (mean=4.5708, std=0.9662)
+- WindowDS: on-the-fly slicing verified (x=[72,70,6], y=[48,70])
+
+**Status:** Pipeline end-to-end with real data. Ready for baseline evaluation and model training.
