@@ -133,6 +133,30 @@ This file logs every experiment run. Update after each run.
 
 ---
 
+## 2026-10-15 - Real Baseline Evaluation on Fixed Dataset (y_full normalized)
+
+**Problem:** Previous baseline evaluation used unnormalized `y_full` (raw PM2.5) with normalized predictions, causing denormalization overflow and invalid metrics.
+
+**Fix:** Updated `build_dataset.py` to normalize `y_full` with same log1p+z-score as PM2.5 feature (train-only stats). Rebuilt frozen dataset.
+
+**Test Split:** 2024 (8665 windows × 48 horizons × 42 stations)
+
+| Model | MAE (norm) | RMSE (norm) | R² (norm) | MAE (µg/m³) | RMSE (µg/m³) | R² (µg/m³) |
+|-------|-----------|------------|-----------|-------------|--------------|------------|
+| Persistence | 1.12 | 1.45 | -0.07 | 61.0 | 106.3 | -0.22 |
+| Historical Avg | 1.15 | 1.49 | -0.12 | 63.0 | 106.3 | -0.22 |
+
+**Key Observations:**
+- Both baselines have negative R² on denormalized scale (persistence worse than climatology)
+- Historical Average slightly worse than Persistence on normalized MAE (1.15 vs 1.12)
+- Both baselines have similar denormalized RMSE (~106 µg/m³)
+- MAPE unreliable on denormalized (division by near-zero PM2.5)
+- Normalized metrics more reliable for comparison
+
+**Next:** LSTM baselines 4-5 (univariate + multivariate)
+
+---
+
 ## 2026-10-14 - Station Coordinate Fix & 42-Station Dataset
 
 **Problem:** 

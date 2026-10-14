@@ -96,9 +96,8 @@ def build_dataset(df: pd.DataFrame) -> Dict[str, np.ndarray]:
     # Apply normalization to X_full (pm25 channel)
     X_full[:, :, 0] = (np.log1p(np.clip(X_full[:, :, 0], 0, None)) - norm_mean) / norm_std
     
-    # Apply normalization to y_full (already log1p normalized in cleaning, but re-do for consistency)
-    # Actually y_full should already be normalized from cleaning step
-    # If not, we'd normalize here. For now, assume cleaning did it.
+    # Apply normalization to y_full (same as PM2.5 feature: log1p + z-score)
+    y_full = (np.log1p(np.clip(y_full, 0, None)) - norm_mean) / norm_std
     
     # Coordinates (placeholder if not in df)
     if "lat" in df.columns and "lon" in df.columns:
