@@ -14,7 +14,7 @@ class UnivariateLSTM(nn.Module):
     """Shared LSTM across stations (univariate baseline).
 
     Input: (batch, seq_len, num_stations, num_features)
-    Uses a single LSTM cell shared across stations, returns predictions per station.
+    Uses a single LSTM cell shared across stations, returns 48-horizon predictions per station.
     """
 
     def __init__(self, config: dict = None):
@@ -27,6 +27,7 @@ class UnivariateLSTM(nn.Module):
         dropout = self.config.get("dropout", 0.3)
         input_size = self.config.get("input_size", 1)
         num_stations = 70  # hardcoded for Delhi-NCR
+        output_horizons = 48  # 48-hour forecast
 
         # Shared LSTM
         self.lstm = nn.LSTM(
@@ -37,8 +38,10 @@ class UnivariateLSTM(nn.Module):
             batch_first=True,
         )
 
-        # Output layer per station
-        self.fc = nn.Linear(hidden_size, num_stations)
+        # Output layer: hidden -> 48 horizons * num_stations
+        self.fc = nn.Linear(hidden_size, num_stations * output_horizons)
+        self.output_horizons = output_horizons
+        self.num_stations = num_stations
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass.
@@ -47,7 +50,7 @@ class UnivariateLSTM(nn.Module):
             x: (batch, seq_len, num_stations, input_size)
 
         Returns:
-            output: (batch, seq_len, num_stations)
+            output: (batch, output_horizons, num_stations)
         """
         batch_size, seq_len, num_stations, _ = x.shape
         # Reshape for shared LSTM: treat stations as separate input dimensions
@@ -55,8 +58,9 @@ class UnivariateLSTM(nn.Module):
         x_shared = x.mean(dim=2, keepdim=False)  # (batch, seq_len, input_size)
         lstm_out, _ = self.lstm(x_shared)  # (batch, seq_len, hidden_size)
 
-        # Map LSTM output to stations
-        preds = self.fc(lstm_out)  # (batch, seq_len, num_stations)
+        # Take last hidden state for prediction
+        preds = self.fc(lstm_out[:, -1:, :])  # (batch, 1, stations*horizons)
+        preds = preds.reshape(batch_size, self.output_horizons, self.num_stations)  # (batch, 48, stations)
         return preds
 
 
