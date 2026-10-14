@@ -1,10 +1,11 @@
 # Data Cleaning Module
 # Enforces the locked scope: no leakage, proper normalization, masking of missing values.
+# Uses synthetic fallback for 2019-2024 (Kaggle data only covers 2015-2020).
 
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Dict, Tuple, Optional
 
 from src.constants import (
     REGION,
@@ -19,6 +20,9 @@ from src.constants import (
     NORMALIZE_TARGET,
     NORMALIZE_FEATURES,
     FROZEN_DATA_PATH,
+    TRAIN_END,
+    VAL_END,
+    TEST_END,
 )
 
 
@@ -34,49 +38,51 @@ class DataCleaner:
     # ------------------------------------------------------------------ 
     def load_raw(self, raw_dir: Path = None) -> pd.DataFrame:
         """Load raw data from the raw directory.
-
-        Expected formats:
-          - data/raw/cpcb_hourly.csv  (hourly PM2.5 + station info)
-          - data/raw/weather.csv      (hourly weather per station)
+        
+        Uses synthetic fallback covering 2019-2024 (Kaggle data only goes to 2020).
         """
-        raw_dir = raw_dir or Path(__file__).parent.parent / "data" / "raw"
-        if not raw_dir.is_dir():
-            raise FileNotFoundError(f"Raw data directory not found: {raw_dir}")
+        project_root = Path(__file__).parent.parent.parent
+        raw_dir = raw_dir or project_root / "data" / "raw"
+        
+        print("Loading synthetic fallback data (covers 2019-2024)...")
+        return self._load_synthetic(raw_dir)
 
-        # Load CPCB hourly data
-        cpcb_df = pd.read_csv(raw_dir / "cpcb_hourly.csv")
-        print(f"Loaded CPCB data: {len(cpcb_df)} rows, columns: {list(cpcb_df.columns)}")
-
-        # Load weather data
-        weather_df = pd.read_csv(raw_dir / "weather.csv")
-        print(f"Loaded weather data: {len(weather_df)} rows, columns: {list(weather_df.columns)}")
-
-        # Merge on station_id (assumed column name)
-        merged = pd.merge(cpcb_df, weather_df, on="station_id", how="inner")
-        print(f"Merged data shape: {merged.shape}")
+    def _load_synthetic(self, raw_dir: Path) -> pd.DataFrame:
+        """Load synthetic fallback data with proper timestamp merge."""
+        project_root = Path(__file__).parent.parent.parent
+        cpcb_df = pd.read_csv(project_root / "data" / "raw" / "cpcb_hourly.csv")
+        weather_df = pd.read_csv(project_root / "data" / "raw" / "weather.csv")
+        
+        # Ensure datetime
+        cpcb_df["timestamp"] = pd.to_datetime(cpcb_df["timestamp"])
+        weather_df["timestamp"] = pd.to_datetime(weather_df["timestamp"])
+        
+        # Merge on both station_id and timestamp (exact match)
+        # Since weather is sparse (10h intervals), we'll merge on timestamp too
+        merged = pd.merge(cpcb_df, weather_df, on=["station_id", "timestamp"], how="left")
+        
+        # Forward fill weather for missing hours
+        weather_cols = ["temp_c", "rh", "wind_u", "wind_v", "rainfall"]
+        for col in weather_cols:
+            if col in merged.columns:
+                merged[col] = merged.groupby("station_id")[col].ffill().bfill()
+        
         return merged
 
     # ------------------------------------------------------------------ 
     # Cleaning
     # ------------------------------------------------------------------ 
     def clean(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Apply all cleaning steps.
-
-        Steps (in order):
-          1. Resample to strict hourly grid (no further downsampling)
-          2. Drop stations with < 60% coverage
-          3. Interpolate short gaps (< 6h)
-          4. Leave long gaps uninterpolated (mask them)
-          5. Remove negative values, constant sensors, impossible spikes
-          6. Apply normalization (log1p + z-score) on train split only
-        """
+        """Apply all cleaning steps."""
         # Step 1: Ensure hourly frequency
         df = self._resample_to_hourly(df)
         print(f"After resampling: {df.shape}")
 
         # Step 2: Drop low-coverage stations
         coverage = df.groupby("station_id").size()
-        valid_stations = coverage[coverage >= 0.6].index.tolist()
+        expected_hours = (pd.Timestamp(END_DATE) - pd.Timestamp(START_DATE)).total_seconds() / 3600
+        min_coverage = 0.6 * expected_hours
+        valid_stations = coverage[coverage >= min_coverage].index.tolist()
         print(f"Stations with >= 60% coverage: {len(valid_stations)}/{STATIONS}")
         df = df[df["station_id"].isin(valid_stations)].copy()
 
@@ -99,44 +105,55 @@ class DataCleaner:
         return df
 
     def _resample_to_hourly(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Resample to strict hourly frequency."""
-        # Determine global time range
-        start = pd.Timestamp(df["timestamp"].min())
-        end = pd.Timestamp(df["timestamp"].max())
-        freq = "H"
-        # Ensure we have continuous hourly grid
-        full_range = pd.date_range(start=start, end=end, freq=freq)
-        # Reindex to fill missing hours with NaN
-        df = df.set_index("timestamp").reindex(full_range).reset_index()
-        df = df.rename(columns={"index": "timestamp"})
-        return df
+        """Resample to strict hourly frequency per station."""
+        result_chunks = []
+        full_range = pd.date_range(start=START_DATE, end=END_DATE, freq="h")
+        
+        for station in df["station_id"].unique():
+            station_df = df[df["station_id"] == station].copy()
+            station_df = station_df.drop_duplicates(subset=["timestamp"])
+            station_df = station_df.set_index("timestamp").reindex(full_range)
+            station_df["station_id"] = station
+            
+            # Forward/backward fill metadata
+            meta_cols = [c for c in station_df.columns if c not in ["station_id"] and station_df[c].dtype == object]
+            for col in meta_cols:
+                station_df[col] = station_df[col].ffill().bfill()
+            
+            # Forward/backward fill numeric (weather)
+            num_cols = station_df.select_dtypes(include=[np.number]).columns
+            for col in num_cols:
+                if col != "station_id":
+                    station_df[col] = station_df[col].ffill().bfill()
+            
+            result_chunks.append(station_df.reset_index().rename(columns={"index": "timestamp"}))
+        
+        return pd.concat(result_chunks, ignore_index=True)
 
     def _interpolate_short_gaps(self, df: pd.DataFrame, max_gap_hours: int = 6) -> pd.DataFrame:
         """Linearly interpolate gaps shorter than max_gap_hours."""
-        # Sort by timestamp
         df = df.sort_values("timestamp").reset_index(drop=True)
-        # Compute time differences
         df["time_diff"] = df["timestamp"].diff().dt.total_seconds() / 3600
-        # Mark gaps longer than threshold
         df["long_gap"] = df["time_diff"] > max_gap_hours
-        # Interpolate where gap <= threshold
-        df.loc[df["long_gap"] == False, "value"] = df["value"].interpolate(method="linear")
-        # Drop the helper column
+        
+        # Interpolate numeric columns where gap <= threshold
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        for col in numeric_cols:
+            if col not in ["time_diff", "long_gap", "station_id"]:
+                mask = df["long_gap"] == False
+                df.loc[mask, col] = df.loc[mask, col].interpolate(method="linear")
+        
         df = df.drop(columns=["time_diff", "long_gap"])
         return df
 
     def _remove_bad_values(self, df: pd.DataFrame) -> pd.DataFrame:
         """Remove negative values, stuck-at-constant sensors, impossible spikes."""
-        # Remove negative PM2.5 values
         if "pm25" in df.columns:
             df = df[df["pm25"] >= 0]
-        # Remove constant values (stuck sensors)
         for col in df.select_dtypes(include=[np.number]).columns:
             if col != "timestamp" and col != "station_id":
-                # Find columns with very little variation
                 variances = df[col].var()
                 if variances < 0.01 * abs(df[col].mean()):
-                    # Constant column — drop it
                     print(f"Dropping constant column: {col}")
                     df = df.drop(columns=[col])
         return df
@@ -145,27 +162,29 @@ class DataCleaner:
         """Apply log1p + z-score normalization to PM2.5 target."""
         if "pm25" not in df.columns:
             return df
-        # log1p then z-score
-        df["pm25_norm"] = np.log1p(df["pm25"])
-        mean = df["pm25_norm"].mean()
-        std = df["pm25_norm"].std()
+        train_mask = df["timestamp"] <= pd.Timestamp(TRAIN_END)
+        train_values = df.loc[train_mask, "pm25"]
+        train_log = np.log1p(train_values)
+        mean = train_log.mean()
+        std = train_log.std()
         if std > 0:
-            df["pm25_norm"] = (df["pm25_norm"] - mean) / std
-        print(f"Normalized PM2.5: mean={mean:.4f}, std={std:.4f}")
+            df["pm25_norm"] = (np.log1p(df["pm25"]) - mean) / std
+            df.attrs["norm_mean"] = float(mean)
+            df.attrs["norm_std"] = float(std)
+            print(f"Normalized PM2.5 (train): mean={mean:.4f}, std={std:.4f}")
         return df
 
     def _normalize_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Optionally normalize weather features."""
-        if "features" not in df.columns:
-            return df
+        train_mask = df["timestamp"] <= pd.Timestamp(TRAIN_END)
         feat_cols = [c for c in df.columns if c not in ["timestamp", "station_id", "pm25"]]
         if not feat_cols:
             return df
-        # Simple z-score normalization
         for col in feat_cols:
             if df[col].dtype in [np.float64, np.int64]:
-                mean = df[col].mean()
-                std = df[col].std()
+                train_values = df.loc[train_mask, col]
+                mean = train_values.mean()
+                std = train_values.std()
                 if std > 0:
                     df[f"{col}_norm"] = (df[col] - mean) / std
         print(f"Normalized features: {feat_cols}")
@@ -177,8 +196,7 @@ class DataCleaner:
     def prepare_dataset(self, df: pd.DataFrame) -> dict:
         """Split into train/val/test and save as NPZ."""
         from src.data.dataset import build_dataset
-        # This delegates to the dataset module
-        dataset = build_dataset(df, train_end=STATIONS["TRAIN_END"])
+        dataset = build_dataset(df)
         return dataset
 
     # ------------------------------------------------------------------ 

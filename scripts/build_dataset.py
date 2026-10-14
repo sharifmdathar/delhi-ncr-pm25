@@ -28,8 +28,8 @@ def main():
     print("Building Delhi-NCR PM2.5 dataset...")
     
     # Load and clean data
-    df = cleaning.clener.load_dataframe()
-    df_clean = cleaning.clener.clean(df)
+    df = cleaning.cleaner.get_dataframe()
+    df_clean = cleaning.cleaner.clean(df)
     
     # Build dataset
     ds = dataset.build_dataset(df_clean)
