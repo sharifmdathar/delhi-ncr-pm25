@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 import argparse
 import json
+import re
 import statistics
 from collections import defaultdict
 
@@ -73,6 +74,16 @@ def main():
                  if v.get(sub) is not None and not k.startswith(("Persistence", "Ridge"))]
         return min(cands, key=lambda kv: kv[1])[0] if cands else None
 
+    def tex_row(md: str) -> str:
+        """Convert a markdown table row into a LaTeX tabular row."""
+        cells = [c.strip() for c in md.strip().strip("|").split("|")]
+        cells = [c for c in cells if c]
+        out = []
+        for c in cells:
+            c = re.sub(r"\*\*(.+?)\*\*", r"\\textbf{\1}", c)
+            out.append(c)
+        return " & ".join(out) + " \\\\"
+
     # ---- main table ------------------------------------------------------
     order = sorted(models.items(), key=lambda kv: kv[1]["mae"])
     rows_md = []
@@ -81,8 +92,8 @@ def main():
         bold = "**" if not is_base else ""
         sd = f" $\\pm$ {v['mae_std']:.2f}" if v.get("n_seeds", 1) > 1 else ""
         rows_md.append(
-            f"| {bold}{name}{bold} | {bold}{fmt(v['mae'])}{bold}{sd} | {fmt(v['rmse'])} | "
-            f"{fmt(v['r2'], 3)} | " + " | ".join(fmt(v[f'h{h}']) for h in HORIZONS) + " |")
+            tex_row(f"| {bold}{name}{bold} | {bold}{fmt(v['mae'])}{bold}{sd} | {fmt(v['rmse'])} | "
+            f"{fmt(v['r2'], 3)} | " + " | ".join(fmt(v[f'h{h}']) for h in HORIZONS) + " |"))
 
     # ---- graph ablation --------------------------------------------------
     graph_rows = []
@@ -95,17 +106,17 @@ def main():
             if key in models:
                 v = models[key]
                 sd = f" $\\pm$ {v['mae_std']:.2f}" if v.get("n_seeds", 1) > 1 else ""
-                graph_rows.append(
-                    f"| {label} | {mdl} | {fmt(v['mae'])}{sd} | {fmt(v['rmse'])} | {fmt(v['r2'], 3)} |")
+                graph_rows.append(tex_row(
+                    f"| {label} | {mdl} | {fmt(v['mae'])}{sd} | {fmt(v['rmse'])} | {fmt(v['r2'], 3)} |"))
 
     # ---- episode table ---------------------------------------------------
     ep_rows = []
     for name, v in sorted(ep.items(), key=lambda kv: kv[1]["mae"]):
         if name.startswith(("Persistence", "Ridge")):
             continue
-        ep_rows.append(
+        ep_rows.append(tex_row(
             f"| {name} | {fmt(v['mae'])} | {fmt(v.get('episode_mae'))} | "
-            f"{fmt(v.get('non_episode_mae'))} |")
+            f"{fmt(v.get('non_episode_mae'))} |"))
 
     b_name = best_of(None)
     b_mae = models[b_name]["mae"] if b_name else None
@@ -188,7 +199,7 @@ Two design choices matter more than architecture. First, every network predicts 
 \\begin{{table}}[H]
 \\centering
 \\caption{{Test set (2025), masked metrics in $\\mu$g/m$^3$. Neural models averaged over seeds.}}
-\\begin{{tabular}}{{lrrrrrrrrrr}}
+\\begin{{tabular}}{{lrrrrrrrrr}}
 \\toprule
 Model & MAE & RMSE & $R^2$ & 1h & 3h & 6h & 12h & 24h & 48h \\\\
 \\midrule

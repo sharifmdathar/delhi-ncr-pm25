@@ -69,23 +69,23 @@ Two design choices matter more than architecture. First, every network predicts 
 \begin{table}[H]
 \centering
 \caption{Test set (2025), masked metrics in $\mu$g/m$^3$. Neural models averaged over seeds.}
-\begin{tabular}{lrrrrrrrrrr}
+\begin{tabular}{lrrrrrrrrr}
 \toprule
 Model & MAE & RMSE & $R^2$ & 1h & 3h & 6h & 12h & 24h & 48h \\
 \midrule
-| **stgcn_identity** | **32.60** $\pm$ 0.10 | 57.25 | 0.626 | 15.04 | 23.80 | 28.52 | 31.03 | 32.92 | 36.39 |
-| **lstm_univariate_distance** | **32.87** $\pm$ 0.09 | 57.61 | 0.621 | 15.46 | 23.91 | 28.63 | 31.17 | 33.21 | 37.03 |
-| **stgcn_wind_aware** | **33.06** $\pm$ 0.11 | 57.74 | 0.620 | 15.63 | 23.96 | 28.80 | 31.30 | 33.67 | 36.95 |
-| **stgcn_distance** | **33.11** $\pm$ 0.14 | 58.08 | 0.615 | 15.48 | 23.97 | 28.79 | 31.47 | 33.67 | 36.98 |
-| **graph_wavenet_identity** | **33.35** $\pm$ 0.05 | 58.16 | 0.614 | 15.22 | 24.14 | 29.00 | 31.61 | 33.36 | 37.37 |
-| **stgcn_correlation** | **33.46** $\pm$ 0.43 | 58.19 | 0.614 | 15.58 | 24.29 | 29.27 | 32.05 | 33.82 | 36.84 |
-| **graph_wavenet_wind_aware** | **33.76** $\pm$ 0.30 | 58.92 | 0.604 | 15.54 | 24.18 | 29.16 | 31.89 | 33.78 | 37.69 |
-| **graph_wavenet_distance** | **34.83** $\pm$ 0.69 | 59.95 | 0.590 | 15.67 | 24.96 | 30.03 | 32.87 | 34.68 | 38.60 |
-| **graph_wavenet_correlation** | **35.43** $\pm$ 1.11 | 60.82 | 0.578 | 15.89 | 25.15 | 30.72 | 33.13 | 35.42 | 39.33 |
-| **lstm_multivariate_distance** | **38.20** $\pm$ 1.83 | 68.47 | 0.465 | 16.56 | 26.12 | 31.87 | 35.63 | 39.05 | 42.80 |
-| **transformer_distance** | **38.88** $\pm$ 1.04 | 68.94 | 0.457 | 16.44 | 26.19 | 32.09 | 35.08 | 39.00 | 44.55 |
-| Ridge(24 lags) | 44.03 | 73.69 | 0.380 | 15.83 | 28.09 | 39.46 | 47.14 | 36.45 | 42.34 |
-| Persistence | 54.83 | 90.01 | 0.076 | 46.83 | 49.04 | 54.72 | 58.09 | 48.89 | 49.37 |
+\textbf{stgcn_identity} & \textbf{32.60} $\pm$ 0.10 & 57.25 & 0.626 & 15.04 & 23.80 & 28.52 & 31.03 & 32.92 & 36.39 \\
+\textbf{lstm_univariate_distance} & \textbf{32.87} $\pm$ 0.09 & 57.61 & 0.621 & 15.46 & 23.91 & 28.63 & 31.17 & 33.21 & 37.03 \\
+\textbf{stgcn_wind_aware} & \textbf{33.06} $\pm$ 0.11 & 57.74 & 0.620 & 15.63 & 23.96 & 28.80 & 31.30 & 33.67 & 36.95 \\
+\textbf{stgcn_distance} & \textbf{33.11} $\pm$ 0.14 & 58.08 & 0.615 & 15.48 & 23.97 & 28.79 & 31.47 & 33.67 & 36.98 \\
+\textbf{graph_wavenet_identity} & \textbf{33.35} $\pm$ 0.05 & 58.16 & 0.614 & 15.22 & 24.14 & 29.00 & 31.61 & 33.36 & 37.37 \\
+\textbf{stgcn_correlation} & \textbf{33.46} $\pm$ 0.43 & 58.19 & 0.614 & 15.58 & 24.29 & 29.27 & 32.05 & 33.82 & 36.84 \\
+\textbf{graph_wavenet_wind_aware} & \textbf{33.76} $\pm$ 0.30 & 58.92 & 0.604 & 15.54 & 24.18 & 29.16 & 31.89 & 33.78 & 37.69 \\
+\textbf{graph_wavenet_distance} & \textbf{34.83} $\pm$ 0.69 & 59.95 & 0.590 & 15.67 & 24.96 & 30.03 & 32.87 & 34.68 & 38.60 \\
+\textbf{graph_wavenet_correlation} & \textbf{35.43} $\pm$ 1.11 & 60.82 & 0.578 & 15.89 & 25.15 & 30.72 & 33.13 & 35.42 & 39.33 \\
+\textbf{lstm_multivariate_distance} & \textbf{38.20} $\pm$ 1.83 & 68.47 & 0.465 & 16.56 & 26.12 & 31.87 & 35.63 & 39.05 & 42.80 \\
+\textbf{transformer_distance} & \textbf{38.88} $\pm$ 1.04 & 68.94 & 0.457 & 16.44 & 26.19 & 32.09 & 35.08 & 39.00 & 44.55 \\
+Ridge(24 lags) & 44.03 & 73.69 & 0.380 & 15.83 & 28.09 & 39.46 & 47.14 & 36.45 & 42.34 \\
+Persistence & 54.83 & 90.01 & 0.076 & 46.83 & 49.04 & 54.72 & 58.09 & 48.89 & 49.37 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -98,14 +98,14 @@ Model & MAE & RMSE & $R^2$ & 1h & 3h & 6h & 12h & 24h & 48h \\
 \toprule
 Graph & Model & MAE & RMSE & $R^2$ \\
 \midrule
-| Distance (static) | stgcn | 33.11 $\pm$ 0.14 | 58.08 | 0.615 |
-| Distance (static) | graph_wavenet | 34.83 $\pm$ 0.69 | 59.95 | 0.590 |
-| Correlation (static) | stgcn | 33.46 $\pm$ 0.43 | 58.19 | 0.614 |
-| Correlation (static) | graph_wavenet | 35.43 $\pm$ 1.11 | 60.82 | 0.578 |
-| Wind-aware (directed) | stgcn | 33.06 $\pm$ 0.11 | 57.74 | 0.620 |
-| Wind-aware (directed) | graph_wavenet | 33.76 $\pm$ 0.30 | 58.92 | 0.604 |
-| No graph | stgcn | 32.60 $\pm$ 0.10 | 57.25 | 0.626 |
-| No graph | graph_wavenet | 33.35 $\pm$ 0.05 | 58.16 | 0.614 |
+Distance (static) & stgcn & 33.11 $\pm$ 0.14 & 58.08 & 0.615 \\
+Distance (static) & graph_wavenet & 34.83 $\pm$ 0.69 & 59.95 & 0.590 \\
+Correlation (static) & stgcn & 33.46 $\pm$ 0.43 & 58.19 & 0.614 \\
+Correlation (static) & graph_wavenet & 35.43 $\pm$ 1.11 & 60.82 & 0.578 \\
+Wind-aware (directed) & stgcn & 33.06 $\pm$ 0.11 & 57.74 & 0.620 \\
+Wind-aware (directed) & graph_wavenet & 33.76 $\pm$ 0.30 & 58.92 & 0.604 \\
+No graph & stgcn & 32.60 $\pm$ 0.10 & 57.25 & 0.626 \\
+No graph & graph_wavenet & 33.35 $\pm$ 0.05 & 58.16 & 0.614 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -120,17 +120,17 @@ Episodes are sustained periods with PM2.5 above 150 $\mu$g/m$^3$ for at least 6 
 \toprule
 Model & Overall MAE & Episode MAE & Non-episode MAE \\
 \midrule
-| stgcn_identity | 32.60 | -- | -- |
-| lstm_univariate_distance | 32.87 | -- | -- |
-| stgcn_wind_aware | 33.06 | -- | -- |
-| stgcn_distance | 33.11 | -- | -- |
-| graph_wavenet_identity | 33.35 | -- | -- |
-| stgcn_correlation | 33.46 | -- | -- |
-| graph_wavenet_wind_aware | 33.76 | -- | -- |
-| graph_wavenet_distance | 34.83 | -- | -- |
-| graph_wavenet_correlation | 35.43 | -- | -- |
-| lstm_multivariate_distance | 38.20 | -- | -- |
-| transformer_distance | 38.89 | -- | -- |
+stgcn_identity & 32.60 & -- & -- \\
+lstm_univariate_distance & 32.87 & -- & -- \\
+stgcn_wind_aware & 33.06 & -- & -- \\
+stgcn_distance & 33.11 & -- & -- \\
+graph_wavenet_identity & 33.35 & -- & -- \\
+stgcn_correlation & 33.46 & -- & -- \\
+graph_wavenet_wind_aware & 33.76 & -- & -- \\
+graph_wavenet_distance & 34.83 & -- & -- \\
+graph_wavenet_correlation & 35.43 & -- & -- \\
+lstm_multivariate_distance & 38.20 & -- & -- \\
+transformer_distance & 38.89 & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
