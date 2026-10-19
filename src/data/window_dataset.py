@@ -53,13 +53,13 @@ class WindowDS(Dataset):
         m = s + self.input_hours
         e = m + self.output_hours
         
-        # X: [input_hours, N, F]
-        x = torch.from_numpy(self.X_full[s:m]).float()
-        mask_x = torch.from_numpy(self.mask_X[s:m]).float()
+        # X: [input_hours, N, F] - use torch.tensor instead of from_numpy for numpy 2.x compatibility
+        x = torch.tensor(self.X_full[s:m], dtype=torch.float32)
+        mask_x = torch.tensor(self.mask_X[s:m], dtype=torch.float32)
         
         # y: [output_hours, N]
-        y = torch.from_numpy(self.y_full[m:e]).float()
-        mask_y = torch.from_numpy(self.mask_y[m:e]).float()
+        y = torch.tensor(self.y_full[m:e], dtype=torch.float32)
+        mask_y = torch.tensor(self.mask_y[m:e], dtype=torch.float32)
         
         return x, y, mask_x, mask_y
 

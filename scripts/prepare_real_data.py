@@ -33,7 +33,8 @@ import numpy as np
 import pandas as pd
 
 RAW = Path("data/raw")
-START, END = "2019-01-01", "2024-12-31 23:59"
+# Date range will be set from constants or overridden by args
+START, END = "2024-01-01", "2025-12-31 23:59"
 TS_NAMES = ["timestamp", "from date", "datetime", "date", "time"]
 PM_NAMES = ["pm2.5", "pm25", "pm 2.5"]
 

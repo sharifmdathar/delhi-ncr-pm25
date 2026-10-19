@@ -1,196 +1,210 @@
 """Graph construction utilities for PM2.5 forecasting.
 
-Implements all required graph types:
-- Distance-based (Gaussian kernel)
-- Correlation-based (pairwise correlation on train data only)
-- Wind-aware directed (wind alignment)
-- Learned adaptive (Graph WaveNet adaptive adjacency)
+Implements the graph types compared in this work:
+- ``distance``       - Gaussian kernel on great-circle distance
+- ``correlation``    - pairwise PM2.5 correlation, computed on TRAIN data only
+- ``wind_aware``     - directed edges weighted by how well the prevailing
+                       wind at station i points towards station j
+- ``learned_adaptive`` - Graph WaveNet's softmax(relu(E1 E2^T)), learned in-model
+- ``identity``       - no graph (ablation baseline)
+
+Every graph is built from train-split information only.
 """
 
 import numpy as np
 import torch
 from typing import Optional, Tuple
 
+EARTH_RADIUS_KM = 6371.0
+
+
+def haversine_matrix(coords: np.ndarray) -> np.ndarray:
+    """Great-circle distance matrix in km. coords: (N, 2) as (lat, lon) in degrees."""
+    lat = np.deg2rad(coords[:, 0])[:, None]
+    lon = np.deg2rad(coords[:, 1])[:, None]
+    dlat = lat - lat.T
+    dlon = lon - lon.T
+    a = np.sin(dlat / 2) ** 2 + np.cos(lat) * np.cos(lat.T) * np.sin(dlon / 2) ** 2
+    return 2 * EARTH_RADIUS_KM * np.arcsin(np.sqrt(np.clip(a, 0, 1)))
+
+
+def normalize_adjacency(adj: np.ndarray, add_self_loops: bool = True) -> np.ndarray:
+    """Symmetric normalisation D^-1/2 (A + I) D^-1/2."""
+    a = np.asarray(adj, dtype=np.float64).copy()
+    if add_self_loops:
+        np.fill_diagonal(a, a.diagonal() + 1.0)
+    d = a.sum(axis=1)
+    d_inv_sqrt = np.where(d > 0, 1.0 / np.sqrt(np.maximum(d, 1e-12)), 0.0)
+    return (a * d_inv_sqrt[:, None] * d_inv_sqrt[None, :]).astype(np.float32)
+
 
 class DistanceGraph:
-    """Distance-based graph using Gaussian kernel."""
-    
+    """Gaussian kernel on great-circle distance.
+
+    W_ij = exp(-d_ij^2 / (2 sigma^2)).
+
+    ``sigma`` defaults to 5 km: a physically meaningful pollution-transport
+    scale for the Delhi-NCR network (which spans ~40 km).  Using the median
+    pairwise distance instead would be dominated by the outlying Gurugram /
+    Ghaziabad / Faridabad stations and produce an almost flat kernel.
+    """
+
+    DEFAULT_SIGMA_KM = 5.0
+
     def __init__(self, coords: np.ndarray, sigma: Optional[float] = None):
-        """Initialize distance graph.
-        
-        Args:
-            coords: (N, 2) array of station coordinates (lat, lon)
-            sigma: Gaussian kernel parameter (if None, use median distance)
-        """
         self.coords = coords
-        self.sigma = sigma
-        
-        # Compute distance matrix
-        distances = np.zeros((len(coords), len(coords)))
-        for i in range(len(coords)):
-            for j in range(len(coords)):
-                # Euclidean distance (approximate for lat/lon; proper would use haversine)
-                distances[i, j] = np.sqrt(
-                    (coords[i, 0] - coords[j, 0])**2 + 
-                    (coords[i, 1] - coords[j, 1])**2
-                )
-        
-        # Set sigma
+        self.distances = haversine_matrix(coords)
         if sigma is None:
-            non_zero_distances = distances[distances > 0]
-            sigma = np.median(non_zero_distances) if len(non_zero_distances) > 0 else 1.0
-        self.sigma = sigma
-        
-        # Compute adjacency
-        self.adjacency = np.exp(-distances**2 / (2 * sigma**2))
-        # Add self-loops
-        np.fill_diagonal(self.adjacency, 1.0)
-    
+            sigma = self.DEFAULT_SIGMA_KM
+        self.sigma = float(sigma)
+        adj = np.exp(-self.distances ** 2 / (2 * self.sigma ** 2))
+        np.fill_diagonal(adj, 0.0)
+        self.adjacency = adj
+
     def get_adjacency(self) -> np.ndarray:
-        """Get adjacency matrix."""
         return self.adjacency
 
 
 class CorrelationGraph:
-    """Correlation-based graph computed on train data only."""
-    
+    """Correlation of PM2.5 across stations, computed on TRAIN data only.
+
+    Missing values are handled by pairwise-complete correlation.
+    """
+
     def __init__(self, data: np.ndarray, threshold: float = 0.3):
-        """Initialize correlation graph.
-        
-        Args:
-            data: (N, T, stations) time series data
-            threshold: Minimum absolute correlation for edge
-        """
-        # Reshape to (stations, N*T) and compute correlation
-        N, T, S = data.shape
-        data_flat = data.reshape(-1, S)  # (N*T, S)
-        
-        # Compute correlation matrix (on train data only)
-        corr_matrix = np.corrcoef(data_flat, rowvar=False)  # (S, S)
-        
-        # Apply threshold
-        self.adjacency = np.abs(corr_matrix)
-        self.adjacency[self.adjacency < threshold] = 0
-        # Add self-loops
-        np.fill_diagonal(self.adjacency, 1.0)
-    
+        """data: (T, S) train-split PM2.5 in original units."""
+        data = np.asarray(data, dtype=np.float64)
+        T, S = data.shape
+        obs = np.isfinite(data)
+        corr = np.eye(S)
+        for i in range(S):
+            for j in range(i + 1, S):
+                both = obs[:, i] & obs[:, j]
+                if both.sum() < 24:          # need at least a day of overlap
+                    r = 0.0
+                else:
+                    xi, xj = data[both, i], data[both, j]
+                    if xi.std() < 1e-9 or xj.std() < 1e-9:
+                        r = 0.0
+                    else:
+                        r = float(np.corrcoef(xi, xj)[0, 1])
+                corr[i, j] = corr[j, i] = r
+        adj = np.abs(corr)
+        adj[adj < threshold] = 0.0
+        np.fill_diagonal(adj, 0.0)
+        self.adjacency = adj
+
     def get_adjacency(self) -> np.ndarray:
         return self.adjacency
 
 
 class WindAwareGraph:
-    """Wind-aware directed graph.
-    
-    Edge i→j weighted by wind alignment from station i to station j.
+    """Directed graph weighted by wind alignment.
+
+    For each ordered pair (i, j) the weight is
+
+        w_ij = exp(-d_ij^2 / (2 sigma^2)) * max(0, cos(theta_ij - phi_i))
+
+    where ``theta_ij`` is the bearing from i to j and ``phi_i`` is the
+    prevailing wind direction *at station i* (the direction the wind blows
+    towards, i.e. the meteorological "to" direction).  The cosine term is
+    clipped at zero, so an edge only exists when the wind actually carries
+    air from i towards j.
+
+    ``wind_u``/``wind_v`` are the u/v components (m/s) of the prevailing
+    wind, computed on the TRAIN split only.
     """
-    
-    def __init__(self, coords: np.ndarray, wind_history: np.ndarray, 
-                 historical_wind: Optional[np.ndarray] = None):
-        """Initialize wind-aware graph.
-        
-        Args:
-            coords: (N, 2) station coordinates
-            wind_history: Historical wind data (optional)
-        """
+
+    def __init__(self, coords: np.ndarray, wind_u: np.ndarray, wind_v: np.ndarray,
+                 sigma: Optional[float] = None, exponent: float = 2.0):
         self.coords = coords
-        num_stations = len(coords)
-        
-        # Initialize with identity (self-loops)
-        self.adjacency = np.eye(num_stations)
-        
-        # For demonstration, create a simple wind-aligned adjacency
-        # Real implementation would compute alignment from wind vectors
-        # For now, use distance-based weights with directional bias
-        
-        # Placeholder: simple distance-based approximation
-        # Real code would compute wind direction from historical data
-        # and weight edges based on wind alignment
-        
-        # For simplicity, we'll use a directional approximation
-        # based on relative station positions
-        for i in range(num_stations):
-            for j in range(num_stations):
-                if i != j:
-                    # Compute direction from i to j
-                    dx = coords[j, 1] - coords[i, 1]  # longitude difference
-                    dy = coords[j, 0] - coords[i, 0]  # latitude difference
-                    distance = np.sqrt(dx**2 + dy**2)
-                    
-                    # Weight based on distance (closer stations = stronger connection)
-                    # and random directional bias (simulating wind patterns)
-                    # In production, this would use actual historical wind data
-                    weight = np.exp(-distance**2 / 0.01)  # Small sigma for demonstration
-                    
-                    # Add some directional bias (simulating prevailing wind)
-                    # This is a simplified approximation
-                    weight *= 0.8  # Scale down for non-self connections
-                    
-                    self.adjacency[i, j] = weight
-        
-        # Normalize rows
-        row_sums = self.adjacency.sum(axis=1, keepdims=True)
-        self.adjacency = self.adjacency / (row_sums + 1e-8)
-    
+        N = len(coords)
+        self.distances = haversine_matrix(coords)
+
+        if sigma is None:
+            sigma = DistanceGraph.DEFAULT_SIGMA_KM
+        self.sigma = float(sigma)
+
+        # Prevailing wind direction at each station: the "to" direction.
+        # Meteorological u/v point *from* the origin, so the flow direction
+        # (where the air is heading) is the opposite of the wind vector.
+        speed = np.hypot(wind_u, wind_v)
+        # Direction the air travels, as a bearing in degrees (0 = north).
+        to_u, to_v = -np.asarray(wind_u), -np.asarray(wind_v)
+        phi = (np.degrees(np.arctan2(to_u, to_v))) % 360.0
+        self.wind_to_deg = phi
+        self.wind_speed = speed
+
+        lat = np.deg2rad(coords[:, 0])[:, None]
+        lon = np.deg2rad(coords[:, 1])[:, None]
+        dlon = lon - lon.T
+        y = np.sin(dlon) * np.cos(lat.T)
+        x = np.cos(lat) * np.sin(lat.T) - np.sin(lat.T) * np.cos(lat) * np.cos(dlon)
+        theta = (np.degrees(np.arctan2(y, x))) % 360.0     # bearing i -> j
+
+        delta = np.deg2rad(theta - phi[:, None])            # (N, N)
+        align = np.cos(delta)
+        align[align < 0] = 0.0                              # only downwind edges
+
+        kernel = np.exp(-self.distances ** 2 / (2 * self.sigma ** 2))
+        adj = kernel * align
+        np.fill_diagonal(adj, 0.0)
+        self.adjacency = adj
+        self.alignment = align
+
     def get_adjacency(self) -> np.ndarray:
         return self.adjacency
 
 
-class LearnedAdaptiveGraph:
-    """Graph WaveNet self-adaptive adjacency.
-    
-    A = softmax(ReLU(E1 * E2^T))
-    """
-    
-    def __init__(self, num_nodes: int = 70, embedding_size: int = 10):
-        """Initialize adaptive adjacency.
-        
-        Args:
-            num_nodes: Number of stations
-            embedding_size: Size of node embeddings
-        """
-        self.num_nodes = num_nodes
-        self.embedding_size = embedding_size
-        
-        # Initialize embeddings (will be learned during training)
-        self.node_embedding_1 = np.random.randn(num_nodes, embedding_size) * 0.02
-        self.node_embedding_2 = np.random.randn(embedding_size, num_nodes) * 0.02
-    
+class IdentityGraph:
+    """No graph: identity (used for the no-graph ablation)."""
+
+    def __init__(self, num_nodes: int):
+        self.adjacency = np.zeros((num_nodes, num_nodes), dtype=np.float64)
+
     def get_adjacency(self) -> np.ndarray:
-        """Compute adaptive adjacency matrix."""
-        # Compute A = softmax(ReLU(E1 * E2^T))
-        # Note: This requires PyTorch for gradient computation
-        # For now, return a simple approximation
-        adj = np.eye(self.num_nodes)
-        return adj
+        return self.adjacency
 
 
-def build_graph(
-    graph_type: str,
-    coords: np.ndarray,
-    data: Optional[np.ndarray] = None,
-    **kwargs
-) -> np.ndarray:
+def build_graph(graph_type: str,
+                coords: np.ndarray,
+                pm25_train: Optional[np.ndarray] = None,
+                wind_u: Optional[np.ndarray] = None,
+                wind_v: Optional[np.ndarray] = None,
+                normalize: bool = True,
+                **kwargs) -> np.ndarray:
     """Build a graph adjacency matrix.
-    
+
     Args:
-        graph_type: One of "distance", "correlation", "wind_aware", "learned_adaptive"
-        coords: Station coordinates (N, 2)
-        data: Training data (for correlation) or wind history (optional)
-        
+        graph_type: "distance" | "correlation" | "wind_aware" | "learned_adaptive" | "identity"
+        coords: (N, 2) lat/lon in degrees
+        pm25_train: (T, S) train-split PM2.5 in original units (for correlation)
+        wind_u, wind_v: (S,) train-split prevailing wind components (for wind_aware)
+        normalize: apply symmetric normalisation
+
     Returns:
-        Adjacency matrix (N, N)
+        (N, N) float32 adjacency
     """
+    N = len(coords)
     if graph_type == "distance":
-        graph = DistanceGraph(coords, sigma=kwargs.get("sigma"))
+        adj = DistanceGraph(coords, sigma=kwargs.get("sigma")).get_adjacency()
     elif graph_type == "correlation":
-        if data is None:
-            raise ValueError("Data required for correlation graph")
-        graph = CorrelationGraph(data, threshold=kwargs.get("threshold", 0.3))
+        if pm25_train is None:
+            raise ValueError("pm25_train required for the correlation graph")
+        adj = CorrelationGraph(pm25_train, threshold=kwargs.get("threshold", 0.3)).get_adjacency()
     elif graph_type == "wind_aware":
-        graph = WindAwareGraph(coords, data if data is not None else np.array([]))
+        if wind_u is None or wind_v is None:
+            raise ValueError("wind_u/wind_v required for the wind-aware graph")
+        adj = WindAwareGraph(coords, wind_u, wind_v, sigma=kwargs.get("sigma")).get_adjacency()
     elif graph_type == "learned_adaptive":
-        graph = LearnedAdaptiveGraph(num_nodes=len(coords))
+        # The adjacency is learned inside GraphWaveNet; start from identity.
+        adj = np.eye(N)
+    elif graph_type == "identity":
+        adj = IdentityGraph(N).get_adjacency()
     else:
         raise ValueError(f"Unknown graph type: {graph_type}")
-    
-    return graph.get_adjacency()
+
+    adj = np.asarray(adj, dtype=np.float64)
+    if normalize and graph_type != "learned_adaptive":
+        adj = normalize_adjacency(adj)
+    return adj.astype(np.float32)

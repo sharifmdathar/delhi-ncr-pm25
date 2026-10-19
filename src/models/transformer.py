@@ -2,6 +2,9 @@
 
 Input: (batch, seq_len, num_stations, num_features)
 Treats stations as channels with temporal attention.
+
+Uses the shared residual output head (delta prediction + linear
+autoregressive skip) from ``base.ResidualForecaster``.
 """
 
 import torch
@@ -9,38 +12,33 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional
 
+from src.models.base import ResidualForecaster, DeltaLinearSkip, zero_init
 
-class TemporalTransformer(nn.Module):
+
+class TemporalTransformer(ResidualForecaster):
     """Plain Transformer for temporal forecasting.
 
     Architecture:
     - Input projection to hidden_size
-    - Positional encoding (learned)
+    - Learned positional encoding
     - Stacked Transformer encoder layers
-    - Output projection to stations × horizons
+    - Output projection to stations x horizons (delta)
     """
 
     def __init__(self, config: dict = None):
-        super().__init__()
+        super().__init__(config)
         self.name = "transformer"
-        self.config = config or {}
 
-        hidden_size = self.config.get("hidden_size", 128)
+        hidden_size = self.config.get("hidden_size", 64)
         num_layers = self.config.get("num_layers", 2)
         num_heads = self.config.get("num_heads", 4)
         dropout = self.config.get("dropout", 0.3)
         input_size = self.config.get("input_size", 1)
-        num_stations = self.config.get("num_stations", 70)
         seq_len = self.config.get("seq_len", 72)
-        pred_horizons = self.config.get("pred_horizons", 48)
 
-        # Input projection
-        self.input_proj = nn.Linear(input_size * num_stations, hidden_size)
-
-        # Positional encoding (learned)
+        self.input_proj = nn.Linear(input_size * self.num_stations, hidden_size)
         self.pos_embed = nn.Parameter(torch.randn(1, seq_len, hidden_size) * 0.02)
 
-        # Transformer encoder
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=hidden_size,
             nhead=num_heads,
@@ -51,43 +49,22 @@ class TemporalTransformer(nn.Module):
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        # Output projection
-        self.output_proj = nn.Linear(hidden_size, num_stations * pred_horizons)
+        self.output_proj = zero_init(
+            nn.Linear(hidden_size, self.num_stations * self.output_horizons))
 
-        self.num_stations = num_stations
-        self.pred_horizons = pred_horizons
+        if self.use_lag_skip:
+            self.lag_linear = DeltaLinearSkip(
+                self.num_stations, self.lag_skip, self.output_horizons)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass.
-
-        Args:
-            x: (batch, seq_len, num_stations, input_size)
-
-        Returns:
-            output: (batch, pred_horizons, num_stations)
-        """
-        batch_size, seq_len, num_stations, input_size = x.shape
-
-        # Flatten stations into feature dimension
-        x = x.reshape(batch_size, seq_len, -1)  # (batch, seq_len, stations*input_size)
-
-        # Project to hidden size
-        x = self.input_proj(x)  # (batch, seq_len, hidden_size)
-
-        # Add positional encoding
-        x = x + self.pos_embed[:, :seq_len, :]
-
-        # Transformer encoder
-        x = self.transformer(x)  # (batch, seq_len, hidden_size)
-
-        # Use last token for prediction (or pool)
-        x = x[:, -1, :]  # (batch, hidden_size)
-
-        # Project to output
-        preds = self.output_proj(x)  # (batch, stations * pred_horizons)
-        preds = preds.reshape(batch_size, self.pred_horizons, self.num_stations)  # (batch, 48, stations)
-
-        return preds
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, N, n_feat = x.shape
+        x_flat = x.reshape(B, T, N * n_feat)
+        h = self.input_proj(x_flat)
+        h = h + self.pos_embed[:, :T, :]
+        h = self.transformer(h)
+        h = h[:, -1, :]                       # last token
+        delta = self.output_proj(h)           # (B, N*H)
+        return delta.reshape(B, N, self.output_horizons)
 
 
 def build_transformer_model(config: dict = None):

@@ -3,14 +3,16 @@
 
 # --- Regions & Stations ---
 REGION = "delhi_ncr"
-STATIONS = 42  # 38 Delhi (DL001-DL038) + 4 NCR (HR011-HR014) stations with real data
+STATIONS = 54  # Delhi-NCR stations from CPCB (site_* ids); filtered by coverage at build time
+# Data source: Vonter/india-cpcb-aqi GitHub releases (CPCB 15-min, 2009-2025)
 
 # --- Period ---
 START_DATE = "2019-01-01"
-END_DATE = "2024-12-31"
-TRAIN_END = "2022-12-31"      # inclusive
-VAL_END = "2023-12-31"        # inclusive
-TEST_END = "2024-12-31"       # inclusive
+END_DATE = "2025-12-31"
+TRAIN_END = "2022-12-31"      # inclusive (4 years, 4 winters)
+VAL_END = "2023-12-31"        # inclusive (1 year, 1 winter)
+TEST_START = "2024-01-01"     # inclusive (2 years, 2 winters)
+TEST_END = "2025-12-31"       # inclusive (2025)
 
 # --- Horizons ---
 HORIZONS = [1, 3, 6, 12, 24, 48]  # hours ahead to predict
@@ -38,7 +40,7 @@ NORMALIZE_TARGET = True  # apply log1p + z-score to PM2.5
 NORMALIZE_FEATURES = True  # optionally normalize weather features too
 
 # --- Graph Construction ---
-# Graph adjacency matrices are 42×42 (one per station)
+# Graph adjacency matrices are N×N (one per station)
 # All graphs built on train-split data only — never use val/test info.
 
 # Distance graph: Gaussian kernel on station coordinates
@@ -53,7 +55,12 @@ CORRELATION_THRESHOLD = 0.3  # keep edges with |corr| >= threshold
 # Learned adaptive: Graph WaveNet adjacency E₁E₂ᵀ inside the model
 
 # --- Data Freeze ---
-FROZEN_DATA_PATH = "data/processed/delhi_ncr_pm25_2019_2024.npz"
+FROZEN_DATA_PATH = "data/processed/delhi_ncr_pm25_2019_2025.npz"
+
+# --- Data Quality ---
+# Minimum fraction of real (non-imputed) observations required in each split
+# per station. If any station in train/val/test falls below, build fails.
+MIN_REAL_DATA_FRACTION = 0.70
 
 # --- Training ---
 BATCH_SIZE = 64

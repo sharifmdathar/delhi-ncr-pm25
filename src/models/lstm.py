@@ -1,7 +1,13 @@
 """Univariate and Multivariate LSTM models for PM2.5 forecasting.
 
-Implements shared LSTM weights across stations (univariate).
-Multivariate version concatenates all stations as input channels.
+Both variants use the shared output head from ``base.ResidualForecaster``:
+the network predicts the change from the last observed value and a linear
+autoregressive skip (the ridge solution) is added, so the model starts at
+Persistence and is measured relative to a strong linear predictor.
+
+Univariate: one LSTM applied to each station separately with *shared* weights
+(so per-station history is preserved rather than averaged away).
+Multivariate: one LSTM over all stations concatenated as channels.
 """
 
 import torch
@@ -9,27 +15,25 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional, Dict
 
+from src.models.base import ResidualForecaster, DeltaLinearSkip, zero_init
 
-class UnivariateLSTM(nn.Module):
-    """Shared LSTM across stations (univariate baseline).
+
+class UnivariateLSTM(ResidualForecaster):
+    """Shared-weight LSTM applied per station.
 
     Input: (batch, seq_len, num_stations, num_features)
-    Uses a single LSTM cell shared across stations, returns 48-horizon predictions per station.
+    Output: (batch, output_horizons, num_stations)
     """
 
     def __init__(self, config: dict = None):
-        super().__init__()
+        super().__init__(config)
         self.name = "lstm_univariate"
-        self.config = config or {}
-        
-        hidden_size = self.config.get("hidden_size", 128)
+
+        hidden_size = self.config.get("hidden_size", 64)
         num_layers = self.config.get("num_layers", 2)
         dropout = self.config.get("dropout", 0.3)
         input_size = self.config.get("input_size", 1)
-        num_stations = self.config.get("num_stations", 70)
-        output_horizons = self.config.get("output_horizons", 48)
 
-        # Shared LSTM
         self.lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
@@ -37,104 +41,72 @@ class UnivariateLSTM(nn.Module):
             dropout=dropout,
             batch_first=True,
         )
+        # delta head: hidden -> H, zero-initialised so the model starts at Persistence
+        self.fc = zero_init(nn.Linear(hidden_size, self.output_horizons))
 
-        # Output layer: hidden -> 48 horizons * num_stations
-        self.fc = nn.Linear(hidden_size, num_stations * output_horizons)
-        self.output_horizons = output_horizons
-        self.num_stations = num_stations
+        if self.use_lag_skip:
+            self.lag_linear = DeltaLinearSkip(
+                self.num_stations, self.lag_skip, self.output_horizons)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass.
-
-        Args:
-            x: (batch, seq_len, num_stations, input_size)
-
-        Returns:
-            output: (batch, output_horizons, num_stations)
-        """
-        batch_size, seq_len, num_stations, _ = x.shape
-        # Reshape for shared LSTM: treat stations as separate input dimensions
-        # Use mean across stations before LSTM
-        x_shared = x.mean(dim=2, keepdim=False)  # (batch, seq_len, input_size)
-        lstm_out, _ = self.lstm(x_shared)  # (batch, seq_len, hidden_size)
-
-        # Take last hidden state for prediction
-        preds = self.fc(lstm_out[:, -1:, :])  # (batch, 1, stations*horizons)
-        preds = preds.reshape(batch_size, self.output_horizons, self.num_stations)  # (batch, 48, stations)
-        return preds
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, N, n_feat = x.shape
+        # (B, T, N, F) -> (B*N, T, F): shared LSTM across stations
+        x_flat = x.permute(0, 2, 1, 3).reshape(B * N, T, n_feat)
+        out, _ = self.lstm(x_flat)            # (B*N, T, H)
+        last = out[:, -1, :]                  # (B*N, H)
+        delta = self.fc(last)                 # (B*N, H)
+        return delta.reshape(B, N, self.output_horizons)
 
 
-class MultivariateLSTM(nn.Module):
-    """Multivariate LSTM that processes all stations jointly.
+class MultivariateLSTM(ResidualForecaster):
+    """LSTM over all stations jointly (stations as channels).
 
     Input: (batch, seq_len, num_stations, num_features)
-    Treats each station as a separate channel.
+    Output: (batch, output_horizons, num_stations)
     """
 
     def __init__(self, config: dict = None):
-        super().__init__()
+        super().__init__(config)
         self.name = "lstm_multivariate"
-        self.config = config or {}
 
-        hidden_size = self.config.get("hidden_size", 128)
+        hidden_size = self.config.get("hidden_size", 64)
         num_layers = self.config.get("num_layers", 2)
         dropout = self.config.get("dropout", 0.3)
         input_size = self.config.get("input_size", 1)
-        num_stations = self.config.get("num_stations", 70)
-        output_horizons = self.config.get("output_horizons", 48)
 
-        # LSTM for each station channel (shared layers, separate input projection)
         self.lstm = nn.LSTM(
-            input_size=input_size * num_stations,  # flatten stations
+            input_size=input_size * self.num_stations,
             hidden_size=hidden_size,
             num_layers=num_layers,
             dropout=dropout,
             batch_first=True,
         )
+        self.fc = zero_init(nn.Linear(hidden_size, self.num_stations * self.output_horizons))
 
-        self.fc = nn.Linear(hidden_size, num_stations * output_horizons)
-        self.num_stations = num_stations
-        self.output_horizons = output_horizons
+        if self.use_lag_skip:
+            self.lag_linear = DeltaLinearSkip(
+                self.num_stations, self.lag_skip, self.output_horizons)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass.
-
-        Args:
-            x: (batch, seq_len, num_stations, input_size)
-
-        Returns:
-            output: (batch, 48, num_stations)
-        """
-        batch_size, seq_len, num_stations, input_size = x.shape
-        # Flatten stations into feature dimension
-        x_flat = x.reshape(batch_size, seq_len, -1)  # (batch, seq_len, stations*input_size)
-        lstm_out, _ = self.lstm(x_flat)  # (batch, seq_len, hidden_size)
-
-        # Take last hidden state for predictions
-        preds = self.fc(lstm_out[:, -1:, :])  # (batch, 1, stations*48)
-        preds = preds.reshape(batch_size, self.output_horizons, num_stations)  # (batch, 48, stations)
-        return preds
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        B, T, N, n_feat = x.shape
+        x_flat = x.reshape(B, T, N * n_feat)      # (B, T, N*F)
+        out, _ = self.lstm(x_flat)            # (B, T, H)
+        last = out[:, -1, :]                  # (B, H)
+        delta = self.fc(last)                 # (B, N*H)
+        return delta.reshape(B, N, self.output_horizons)
 
 
-# Factory function
 def build_lstm_model(model_type: str, config: dict = None, multivariate: bool = False):
-    """Build LSTM model.
+    """Build an LSTM model.
 
     Args:
         model_type: "lstm_univariate" or "lstm_multivariate"
         config: model configuration
-        multivariate: if True, use multivariate LSTM
-
-    Returns:
-        model: torch.nn.Module
+        multivariate: if True, force the multivariate variant
     """
     if model_type not in ["lstm_univariate", "lstm_multivariate"]:
         raise ValueError(f"Unknown LSTM model type: {model_type}")
 
-    if model_type == "lstm_univariate":
-        return UnivariateLSTM(config)
-    elif model_type == "lstm_multivariate":
-        if multivariate:
-            return MultivariateLSTM(config)
-        else:
-            return UnivariateLSTM(config)
+    if model_type == "lstm_multivariate" or multivariate:
+        return MultivariateLSTM(config)
+    return UnivariateLSTM(config)

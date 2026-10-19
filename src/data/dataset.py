@@ -15,113 +15,106 @@ from src.constants import (
     FROZEN_DATA_PATH,
     TRAIN_END,
     VAL_END,
+    TEST_START,
     TEST_END,
 )
+
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+COORD_CSV = PROJECT_ROOT / "data" / "raw" / "station_coords.csv"
 
 
 def build_dataset(df: pd.DataFrame) -> Dict[str, np.ndarray]:
     """Build frozen continuous arrays X_full, y_full, masks, timestamps, coords.
-    
-    Does NOT materialize windows. Returns arrays with time as first dimension:
-      X_full: [T, N, F]  (pm25 + weather, normalized)
-      y_full: [T, N]     (pm25 normalized)
-      mask_X: [T, N, F]  (1=observed, 0=missing)
-      mask_y: [T, N]     (1=observed, 0=missing)
-      timestamps: [T]    (datetime64)
-      station_ids: [N]   (strings)
-      coords: [N, 2]     (lat, lon)
-      norm_mean, norm_std: scalars for de-normalization
-      split_indices: dict with train/val/test time indices
-    
-    Normalization stats are fitted on train split only (TRAIN_END).
+
+    Does NOT materialize windows. Arrays have time as the first dimension:
+      X_full:   [T, N, F]  (pm25 + weather, normalized)
+      y_full:   [T, N]     (pm25 normalized)
+      mask_X:   [T, N, F]  (1 = the underlying value was really observed)
+      mask_y:   [T, N]     (1 = really observed)
+      timestamps: [T]       (datetime64, naive IST)
+      station_ids: [N]      (CPCB site ids)
+      coords:   [N, 2]      (lat, lon)
+      norm_mean, norm_std: for de-normalization
+      split_indices_*: time indices per split
+
+    Normalization statistics are fitted on the train split only.
     """
-    # Ensure datetime and sort
     df = _ensure_datetime(df)
     df = df.sort_values(["station_id", "timestamp"])
-    
-    # Get station order
+
     station_ids = np.array(sorted(df["station_id"].unique()), dtype=str)
     n_stations = len(station_ids)
     station_to_idx = {s: i for i, s in enumerate(station_ids)}
-    
-    # Feature columns
-    feature_cols = ["pm25"] + [f"{c}_norm" for c in ["temp_c", "rh", "wind_u", "wind_v", "rainfall"]]
+
+    feature_cols = ["pm25_norm"] + [f"{c}_norm" for c in
+                                    ["temp_c", "rh", "wind_u", "wind_v", "rainfall"]]
     feature_cols = [c for c in feature_cols if c in df.columns]
-    
-    # Build continuous time grid
+
     full_range = pd.date_range(start=START_DATE, end=END_DATE, freq="h")
     n_timesteps = len(full_range)
-    
-    # Initialize arrays
+
     X_full = np.full((n_timesteps, n_stations, len(feature_cols)), np.nan, dtype=np.float32)
     mask_X = np.zeros((n_timesteps, n_stations, len(feature_cols)), dtype=np.float32)
     y_full = np.full((n_timesteps, n_stations), np.nan, dtype=np.float32)
     mask_y = np.zeros((n_timesteps, n_stations), dtype=np.float32)
-    
+
     print(f"Building continuous arrays: T={n_timesteps}, N={n_stations}, F={len(feature_cols)}")
-    
-    # Fill arrays per station
+
     for station in station_ids:
         s_idx = station_to_idx[station]
-        station_df = df[df["station_id"] == station].set_index("timestamp")
-        station_df = station_df.reindex(full_range)
-        
-        # Features
+        sdf = df[df["station_id"] == station].set_index("timestamp").reindex(full_range)
+
+        # The observation mask is per (time, station): an hour counts as observed
+        # if the source contained at least one real pm25 reading for that hour.
+        obs = sdf["observed"].fillna(0.0).values.astype(np.float32) if "observed" in sdf.columns \
+            else sdf["pm25"].notna().values.astype(np.float32)
+
         for f_idx, col in enumerate(feature_cols):
-            if col in station_df.columns:
-                vals = station_df[col].values
-                X_full[:, s_idx, f_idx] = vals
-                mask_X[:, s_idx, f_idx] = station_df[col].notna().values.astype(np.float32)
-        
-        # Target (pm25)
-        if "pm25" in station_df.columns:
-            y_full[:, s_idx] = station_df["pm25"].values
-            mask_y[:, s_idx] = station_df["pm25"].notna().values.astype(np.float32)
-    
-    # Compute normalization stats on TRAIN split only
-    train_end_ts = pd.Timestamp(TRAIN_END)
-    train_mask_time = full_range <= train_end_ts
-    
-    # For pm25 (first feature), compute log1p mean/std on train
-    pm25_train = X_full[train_mask_time, :, 0]
-    pm25_train = pm25_train[~np.isnan(pm25_train)]
-    pm25_log = np.log1p(np.clip(pm25_train, 0, None))
+            if col in sdf.columns:
+                X_full[:, s_idx, f_idx] = sdf[col].values
+                mask_X[:, s_idx, f_idx] = obs
+
+        if "pm25_norm" in sdf.columns:
+            y_full[:, s_idx] = sdf["pm25_norm"].values
+            mask_y[:, s_idx] = obs
+
+    # Normalization stats (train only) - recomputed from the raw pm25 column
+    train_mask_time = full_range <= pd.Timestamp(TRAIN_END)
+    pm25_train = df[(df["timestamp"] <= pd.Timestamp(TRAIN_END)) & (df["observed"] > 0)]["pm25"]
+    pm25_log = np.log1p(np.clip(pm25_train.to_numpy(), 0, None))
     norm_mean = float(pm25_log.mean())
-    norm_std = float(pm25_log.std())
-    if norm_std == 0:
-        norm_std = 1.0
-    
+    norm_std = float(pm25_log.std()) or 1.0
     print(f"Normalization (train): mean={norm_mean:.4f}, std={norm_std:.4f}")
-    
-    # Apply normalization to X_full (pm25 channel)
-    X_full[:, :, 0] = (np.log1p(np.clip(X_full[:, :, 0], 0, None)) - norm_mean) / norm_std
-    
-    # Apply normalization to y_full (same as PM2.5 feature: log1p + z-score)
-    y_full = (np.log1p(np.clip(y_full, 0, None)) - norm_mean) / norm_std
-    
-    # Coordinates (placeholder if not in df)
-    if "lat" in df.columns and "lon" in df.columns:
-        coords = df.groupby("station_id")[["lat", "lon"]].first().reindex(station_ids).values
+
+    # Coordinates
+    if COORD_CSV.exists():
+        coords_df = pd.read_csv(COORD_CSV)
+        coords = coords_df.set_index("station_id")[["lat", "lon"]].reindex(station_ids).values
+        coords = np.nan_to_num(coords.astype(np.float32), nan=0.0)
     else:
         coords = np.zeros((n_stations, 2), dtype=np.float32)
-    
-    # Split indices (time-based)
+
+    # Split indices (time-based, non-overlapping)
     train_idx = np.where(train_mask_time)[0]
     val_mask_time = (full_range > pd.Timestamp(TRAIN_END)) & (full_range <= pd.Timestamp(VAL_END))
     val_idx = np.where(val_mask_time)[0]
-    test_idx = np.where(full_range > pd.Timestamp(VAL_END))[0]
-    
-    # Ensure each split has enough data for at least one window
+    test_mask_time = (full_range >= pd.Timestamp(TEST_START)) & (full_range <= pd.Timestamp(TEST_END))
+    test_idx = np.where(test_mask_time)[0]
+
     min_len = INPUT_HOURS + OUTPUT_HOURS
     if len(train_idx) < min_len or len(val_idx) < min_len or len(test_idx) < min_len:
         raise ValueError("Split too small for window size")
-    
+
+    # Guard against leakage: no split may overlap another
+    if set(train_idx) & set(val_idx) or set(train_idx) & set(test_idx) or set(val_idx) & set(test_idx):
+        raise ValueError("Split overlap detected - leakage")
+
     dataset = {
         "X_full": X_full,
         "y_full": y_full,
         "mask_X": mask_X,
         "mask_y": mask_y,
-        "timestamps": full_range.values.astype('datetime64[ns]'),
+        "timestamps": full_range.values.astype("datetime64[ns]"),
         "station_ids": station_ids,
         "coords": coords.astype(np.float32),
         "feature_names": np.array(feature_cols, dtype=object),
@@ -133,11 +126,11 @@ def build_dataset(df: pd.DataFrame) -> Dict[str, np.ndarray]:
         "input_hours": INPUT_HOURS,
         "output_hours": OUTPUT_HOURS,
     }
-    
+
     Path(FROZEN_DATA_PATH).parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(FROZEN_DATA_PATH, **dataset)
     print(f"Frozen dataset saved: {FROZEN_DATA_PATH}")
-    
+
     return dataset
 
 
