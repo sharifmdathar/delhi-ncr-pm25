@@ -448,7 +448,7 @@ The three splits have near-identical distributions, which is essential: the trai
 
 \\section{{Methods}}
 \\subsection{{Baselines}}
-\\textbf{{Persistence}} repeats the last observed value. \\textbf{{Ridge}} fits a per-station linear map from the last 24 hourly values to each horizon, on the training split only. Ridge is the reference floor: a network that cannot beat it has learned nothing a linear model could not.
+\\textbf{{Persistence}} repeats the last observed value.  \textbf{{Ridge}} fits a per-station linear map from the last 24 hourly values to each horizon, on the training split only.  Ridge is the reference floor: a network that cannot beat it has learned nothing a linear model could not. \n\nWe verify the baselines before trusting them.  The decisive check is Persistence's $R^2$ at a one-hour horizon, which should be far above 0.8 if the timestamps, the resampling and the window construction are all correct: a one-hour-ahead forecast that merely repeats the last observation should explain almost all of the variance.  It did not, at first.  Persistence scored $R^2 = 0.26$ and MAE = 46.8 $\mu$g/m$^3$ at one hour, against 16.6 $\mu$g/m$^3$ for the mean absolute hourly change measured directly on the raw records.  The cause was in the evaluation code, not the data: the walk-back that finds \emph{{the last observed value}} for a station was overwriting the most recent value with the \emph{{oldest}} one it encountered, so the baseline was really \emph{{persistence from up to 72 hours ago}}.  Ridge was implemented correctly and was unaffected; the models were unaffected because they never used that code path.  After the fix, Persistence scores $R^2 = 0.89$ at one hour with MAE = 16.6, matching the raw hourly change, and its overall test MAE moves from 54.8 to 46.8.  No retraining was needed, but every reported baseline number did change, and the earlier headline figures were overstated.
 
 \\subsection{{Models}}
 LSTM (univariate, shared weights applied per station; multivariate, stations as channels), a temporal Transformer, STGCN (spectral graph convolution + GRU), and Graph WaveNet (dilated causal convolutions with a fixed or learned adjacency).
@@ -574,7 +574,7 @@ Model & Overall MAE & Episode MAE & Non-episode MAE \\\\
 \\end{{tabular}}
 \\end{{table}}
 
-Every model is three to five times worse during severe episodes than outside them, and the spread between models widens there: the best configuration scores {fmt(ep_best_ep)} inside episodes against {fmt(ep_best_non)} outside, whereas the best baselines are considerably further back. Extreme pollution is where these architectures are weakest, and no graph structure fixes it. If the practical goal is episode forecasting rather than average accuracy, that is where the remaining work should go.
+One feature of the per-horizon tables deserves a note: the error of the baselines is not monotone in the horizon, with the 12-hour column worse than the 24-hour column.  This is a property of the data rather than an artefact of the evaluation.  Delhi's PM2.5 has a strong diurnal cycle with a peak-to-trough amplitude of 51 $\mu$g/m$^3$, so a 12-hour horizon lands on the opposite phase of that cycle while a 24-hour horizon returns to the same phase.  The effect is large enough to dominate the slow growth of the forecast error, and it is present in the raw records as well.\n\nEvery model is three to five times worse during severe episodes
 
 \\section{{Discussion}}
 \\subsection{{What the graph comparison shows}}

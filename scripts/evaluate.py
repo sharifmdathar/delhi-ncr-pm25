@@ -40,19 +40,31 @@ def denorm(a, mean, std):
 
 
 def persistence_predictions(ds, starts):
-    """Last observed value repeated over the horizon."""
+    """Last observed value repeated over the horizon.
+
+    For each station we take the most recent *observed* value at or before the
+    last input hour, so an hour with missing data does not silently become
+    "persistence from 70 hours ago".  The search mirrors ``_clean_lags``: it
+    walks backwards and stops at the first observed value per station.
+    """
     y = ds["y_full"]
     mask = ds["mask_y"]
+    n_st = y.shape[1]
     preds, targets, masks = [], [], []
     for s in starts:
         s = int(s)
         m, e = s + 72, s + 72 + 48
-        last = y[m - 1]
-        # Walk back to the most recent observed value for each station
-        for back in range(0, 72):
-            cand = y[m - 1 - back]
-            obs = mask[m - 1 - back]
-            last = np.where(obs > 0, cand, last)
+        last = np.full(n_st, np.nan, dtype=np.float64)
+        for back in range(0, 200):
+            idx = m - 1 - back
+            if idx < 0:
+                break
+            cand = y[idx].astype(np.float64)
+            obs = mask[idx] > 0
+            # fill only stations that have not yet found a value -> the most
+            # recent observed value wins
+            take = obs & ~np.isfinite(last)
+            last = np.where(take, cand, last)
         preds.append(np.repeat(last[None, :], 48, axis=0))
         targets.append(y[m:e])
         masks.append(mask[m:e])

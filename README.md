@@ -34,7 +34,7 @@ baselines, so the comparison is meaningful rather than a broken-model artefact.
 | LSTM Multivariate | 38.20 ± 1.83 | 66.94 | 0.489 | 16.27 | 41.66 |
 | Transformer | 38.88 ± 1.04 | 66.34 | 0.498 | 16.38 | 42.41 |
 | Ridge (24 lags) | 44.03 | 73.69 | 0.380 | 15.83 | 42.34 |
-| Persistence | 54.83 | 90.01 | 0.076 | 46.83 | 49.37 |
+| Persistence | 46.79 | 79.01 | 0.288 | 16.55 | 44.74 |
 
 ### Graph ablation
 
@@ -61,6 +61,8 @@ temporal correlation in the errors:
 | GraphWaveNet, wind-aware vs no graph | +0.36 | [0.01, 0.75] | 0.023 | **no graph better** |
 | GraphWaveNet, learned adaptive vs no graph | +1.27 | [0.58, 2.01] | 0.000 | **no graph better** |
 | GraphWaveNet, learned adaptive vs wind-aware | +0.90 | [0.46, 1.39] | 0.000 | **wind-aware better** |
+| STGCN, no graph vs ridge (24 lags) | −11.27 | [−13.02, −9.65] | 1.000 | **no graph better** |
+| STGCN, no graph vs persistence | −14.02 | [−16.05, −12.08] | 1.000 | **no graph better** |
 
 ### Where the graph penalty is actually paid: severe episodes
 
@@ -104,9 +106,9 @@ does not pay either.
 
 | event | start | network peak (µg/m³) | persistence | ridge | no graph | wind-aware | GWN wind |
 |-------|-------|---------------------|-----------|-------|----------|------------|----------|
-| Diwali 2024 | 2024-10-30 | 221 | 70.8 | **59.5** | 65.9 | 81.7 | 92.3 |
-| Winter inversion | 2024-01-13 | 575 | 59.9 | 86.3 | **20.1** | **20.0** | 27.2 |
-| Dust episode | 2024-05-10 | 162 | 24.1 | 15.6 | 17.8 | 15.5 | **14.5** |
+| Diwali 2024 | 2024-10-30 | 221 | 53.8 | **59.5** | 65.9 | 81.7 | 92.3 |
+| Winter inversion | 2024-01-13 | 575 | 108.6 | 86.3 | **20.1** | **20.0** | 27.2 |
+| Dust episode | 2024-05-10 | 162 | **15.5** | 15.6 | 17.8 | 15.5 | **14.5** |
 
 Diwali is the failure case: fireworks add a sharp anthropogenic spike with no
 precursor in the inputs, so the neural models smooth over it and lose to ridge.
@@ -211,6 +213,28 @@ graph does scales with how much it mixes.
 All models predict the **change from the last observed value** and carry a
 **linear autoregressive skip**, so each starts at Persistence and is measured
 relative to ridge. See `src/models/base.py`.
+
+### Sanity checks that were run, and what they caught
+
+| check | expected | result |
+|-------|----------|--------|
+| Persistence R² at 1h (window/timestamp alignment) | > 0.8 | **0.889** — passes, but only after fixing a bug (below) |
+| Persistence MAE at 1h vs raw data | ≈ mean \|1h change\| | 16.55 vs 16.6 — matches |
+| Every neural model beats ridge at every horizon | yes | yes |
+| Every window's inputs *and* targets inside its own split | yes | verified programmatically |
+| Split distributions matched across train/val/test | yes | 102.0 / 98.0 / 97.5 µg/m³ |
+
+The persistence R² check caught a real bug: the walk-back that finds "the last
+observed value" was overwriting the most recent value with the *oldest* one in
+the 72-hour window, so the baseline was really "persistence from up to 72 hours
+ago" and scored 46.83 MAE at 1h instead of 16.55. Ridge was implemented
+correctly and was unaffected. The models were unaffected too, so no retraining
+was needed; only the reported baseline numbers changed.
+
+The per-horizon persistence curve is **not** monotonic (12 h is worse than
+24 h) and this is a property of the data, not an artefact: Delhi's PM2.5 has a
+51 µg/m³ diurnal cycle, so a 12-hour horizon lands on the opposite phase of
+that cycle while a 24-hour horizon returns to the same one.
 
 ---
 

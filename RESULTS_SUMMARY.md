@@ -35,7 +35,7 @@ comparison is meaningful rather than a broken-model artefact.
 | LSTM Multivariate | 38.20 ± 1.83 | 66.94 | 0.489 | 16.27 | 25.29 | 30.90 | 35.06 | 37.56 | 41.66 |
 | Transformer | 38.88 ± 1.04 | 66.34 | 0.498 | 16.38 | 26.32 | 31.53 | 34.21 | 38.16 | 42.41 |
 | Ridge (24 lags) | 44.03 | 73.69 | 0.380 | 15.83 | 28.09 | 39.46 | 47.14 | 36.45 | 42.34 |
-| Persistence | 54.83 | 90.01 | 0.076 | 46.83 | 49.04 | 54.72 | 58.09 | 48.89 | 49.37 |
+| Persistence | 46.79 | 79.01 | 0.288 | 16.55 | 31.15 | 42.78 | 50.09 | 38.41 | 44.74 |
 
 ## Graph ablation (the research question)
 
@@ -64,7 +64,7 @@ temporal correlation in the errors.
 | GraphWaveNet, learned adaptive vs GraphWaveNet, wind-aware | +0.90 | [0.46, 1.39] | 0.000 | second is better |
 | STGCN, no graph vs LSTM Univariate | -0.21 | [-0.36, -0.08] | 0.999 | first is better |
 | STGCN, no graph vs Ridge (24 lags) | -11.27 | [-13.02, -9.65] | 1.000 | first is better |
-| STGCN, no graph vs Persistence | -22.21 | [-25.69, -18.98] | 1.000 | first is better |
+| STGCN, no graph vs Persistence | -14.02 | [-16.05, -12.08] | 1.000 | first is better |
 
 ### Where the graph penalty is actually paid: severe episodes
 
@@ -119,7 +119,7 @@ Episodes = PM2.5 > 150 µg/m³ sustained ≥ 6 h, station-wise (15.6% of observe
 | STGCN, distance | 33.31 | 80.35 | 24.09 |
 | GraphWaveNet, no graph | 33.50 | 78.35 | 24.71 |
 | Ridge (24 lags) | 43.97 | 98.10 | 33.36 |
-| Persistence | 54.33 | 118.89 | 41.67 |
+| Persistence | 46.65 | 102.57 | 35.69 |
 
 All architectures are 3–5× worse during episodes, and the spread between models
 widens there. Extreme pollution is where the remaining error lives.

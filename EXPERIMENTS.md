@@ -872,3 +872,88 @@ report builds on a bare TeX Live.  Fixed along the way: LaTeX escapes inside
 non-raw Python strings (`\toprule` was a TAB, `\bottomrule` a backspace),
 single-backslash table row terminators, unescaped underscores in table cells,
 and the f-string brace doubling for `\emph{...}`.
+
+---
+
+## 2026-10-20 (late) - PERSISTENCE BASELINE BUG FOUND AND FIXED
+
+The user-specified sanity check -- "verify Persistence R^2 at 1h is well above
+0.8 to rule out window/timestamp misalignment" -- FAILED.  Persistence scored
+R^2 = 0.259 and MAE = 46.6 ug/m3 at a one-hour horizon.
+
+### Diagnosis
+The dataset itself is fine.  Mean |y[t+1] - y[t]| computed directly on the
+frozen dataset is 16.95 (2019: 18.83, 2024: 16.62, 2025: 15.63), which matches
+the raw CPCB records (16.98) and the mean absolute hourly change.  The
+dataset's hourly series was also checked against a direct resample of the raw
+15-minute files: the best alignment is at lag 0 (mean |diff| 8.59, versus
+13.14 at lag +1 and 21.56 at lag -1), so there is no window or timestamp
+misalignment.
+
+The bug was in `scripts/evaluate.py::persistence_predictions`.  The walk-back
+that finds "the last observed value" for each station was:
+
+```python
+last = y[m - 1]
+for back in range(0, 72):
+    cand = y[m - 1 - back]
+    obs  = mask[m - 1 - back]
+    last = np.where(obs > 0, cand, last)     # <- overwrites with OLDER values
+```
+
+Every observed hour in the 72-hour window overwrote the previous one, so the
+surviving value was the OLDEST observed hour, not the most recent.  The
+baseline was therefore "persistence from up to 72 hours ago", which also
+explains the nonsensical non-monotonic horizon curve (12h worse than 24h).
+
+`_clean_lags` (used by ridge) had the correct logic -- it breaks at the first
+observed value -- so ridge was unaffected.  The models never used this code
+path, so no retraining was required.  Only the reported baseline numbers
+changed.
+
+### Fix
+Scan backwards and fill each station only once, so the most recent observed
+value wins; extend the search to 200 hours (as `_clean_lags` does) and leave
+NaN if nothing is found.
+
+### After the fix
+| check | before | after | raw data |
+|-------|--------|-------|----------|
+| Persistence R^2 at 1h | 0.259 | **0.889** | -- |
+| Persistence MAE at 1h | 46.56 | **16.32** | 16.6 |
+| Persistence overall MAE | 54.83 | **46.79** | -- |
+| Persistence R^2 overall | 0.076 | **0.288** | -- |
+
+The user's >0.8 threshold now passes.  The models and ridge are unchanged
+(stgcn_identity 32.66, ridge 44.03), so every model-vs-baseline conclusion
+stands; the margin over persistence shrinks from 22.2 to 14.0 ug/m3 and the
+paired bootstrap interval is [-16.05, -12.08].
+
+### Why the per-horizon curve is non-monotonic (not a bug)
+Delhi's PM2.5 has a diurnal cycle with a peak-to-trough amplitude of 51.4
+ug/m3 (network mean: 117.8 at 05:00, 66.4 at 22:00).  A 12-hour horizon
+lands on the opposite phase of that cycle, a 24-hour horizon returns to the
+same phase.  The raw records show the same pattern (mean |12h diff| 50.30 vs
+mean |24h diff| 39.54), so this is a property of the data.  It is now noted
+in the report and the README.
+
+### Data-construction detail checked and left alone
+`src/data/cleaning.py` groups the 15-minute CPCB readings by the EXACT
+timestamp and then reindexes to the hourly grid, so the value kept for each
+hour is the single reading at :00 rather than the mean of the four readings
+in that hour.  Consequences:
+  - the hourly series is noisier than a proper hourly mean (mean |1h diff|
+    16.98 vs 14.28 for the mean-of-four version);
+  - the "hourly" value is a 15-minute sample.
+
+Checked and found harmless for the conclusions: 99.99% of station-hours have a
+reading at :00, so no data is lost, and the alignment is correct.  Left
+unchanged because changing it would require rebuilding the dataset and
+retraining all 90 checkpoints, and it does not affect any comparison (it
+affects all models and all baselines identically).
+
+### Also checked
+`WindAwareGraph` propagates NaN when a station's prevailing wind is
+undefined.  The training path sanitises this (network-mean fallback), so the
+trained models are unaffected, but the graph builder itself should not be
+relied on to sanitise.  Documented as a limitation.

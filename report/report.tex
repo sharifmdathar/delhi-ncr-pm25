@@ -17,7 +17,7 @@ Does a Wind-Aware Dynamic Graph Beat a Static Distance Graph?}
 \maketitle
 
 \begin{abstract}
-We forecast hourly PM2.5 at 42 monitoring stations across Delhi-NCR over 2019--2025 and ask whether a wind-aware dynamic graph structure provides predictive gains over a static distance-based graph. We evaluate 12 neural architectures (LSTM univariate, LSTM multivariate, Transformer, STGCN, GraphWaveNet) against two strong baselines (Persistence, and ridge regression on the last 24 hourly lags). On held-out 2024--2025 data the best neural model reaches MAE=32.66 $\mu$g/m$^3$ against 44.03 for ridge and 54.83 for persistence, so the neural models are clearly learning. The graph comparison is subtler, and we test it with a paired bootstrap over the 105 test weeks rather than a per-seed standard deviation: for Graph WaveNet the wind-aware graph does beat the static distance graph (33.77 vs. 34.60 $\mu$g/m$^3$, paired difference 0.78, 95\% CI [0.40, 1.15]), but for STGCN the two are indistinguishable (0.09, CI [-0.11, 0.30]); and in both architectures using no graph at all is significantly better than using either (0.36--0.51 $\mu$g/m$^3$). Graph WaveNet's self-adaptive adjacency, learned end-to-end, is the worst graph of the four (+1.27 $\mu$g/m$^3$ against no graph, CI [0.58, 2.01]). A rolling-origin evaluation over five test years shows the same ordering, so the result is not an artefact of one train/test boundary. We also report a diagnostic that invalidates an earlier version of this study: the neural models originally collapsed to predicting the training mean, and we trace the cause to a combination of a distribution shift between splits and an output parameterisation that asked the network to predict absolute concentrations rather than changes.
+We forecast hourly PM2.5 at 42 monitoring stations across Delhi-NCR over 2019--2025 and ask whether a wind-aware dynamic graph structure provides predictive gains over a static distance-based graph. We evaluate 12 neural architectures (LSTM univariate, LSTM multivariate, Transformer, STGCN, GraphWaveNet) against two strong baselines (Persistence, and ridge regression on the last 24 hourly lags). On held-out 2024--2025 data the best neural model reaches MAE=32.66 $\mu$g/m$^3$ against 44.03 for ridge and 46.79 for persistence, so the neural models are clearly learning. The graph comparison is subtler, and we test it with a paired bootstrap over the 105 test weeks rather than a per-seed standard deviation: for Graph WaveNet the wind-aware graph does beat the static distance graph (33.77 vs. 34.60 $\mu$g/m$^3$, paired difference 0.78, 95\% CI [0.40, 1.15]), but for STGCN the two are indistinguishable (0.09, CI [-0.11, 0.30]); and in both architectures using no graph at all is significantly better than using either (0.36--0.51 $\mu$g/m$^3$). Graph WaveNet's self-adaptive adjacency, learned end-to-end, is the worst graph of the four (+1.27 $\mu$g/m$^3$ against no graph, CI [0.58, 2.01]). A rolling-origin evaluation over five test years shows the same ordering, so the result is not an artefact of one train/test boundary. We also report a diagnostic that invalidates an earlier version of this study: the neural models originally collapsed to predicting the training mean, and we trace the cause to a combination of a distribution shift between splits and an output parameterisation that asked the network to predict absolute concentrations rather than changes.
 \end{abstract}
 
 \section{Introduction}
@@ -55,7 +55,9 @@ The three splits have near-identical distributions, which is essential: the trai
 
 \section{Methods}
 \subsection{Baselines}
-\textbf{Persistence} repeats the last observed value. \textbf{Ridge} fits a per-station linear map from the last 24 hourly values to each horizon, on the training split only. Ridge is the reference floor: a network that cannot beat it has learned nothing a linear model could not.
+\textbf{Persistence} repeats the last observed value.  	extbf{Ridge} fits a per-station linear map from the last 24 hourly values to each horizon, on the training split only.  Ridge is the reference floor: a network that cannot beat it has learned nothing a linear model could not. 
+
+We verify the baselines before trusting them.  The decisive check is Persistence's $R^2$ at a one-hour horizon, which should be far above 0.8 if the timestamps, the resampling and the window construction are all correct: a one-hour-ahead forecast that merely repeats the last observation should explain almost all of the variance.  It did not, at first.  Persistence scored $R^2 = 0.26$ and MAE = 46.8 $\mu$g/m$^3$ at one hour, against 16.6 $\mu$g/m$^3$ for the mean absolute hourly change measured directly on the raw records.  The cause was in the evaluation code, not the data: the walk-back that finds \emph{the last observed value} for a station was overwriting the most recent value with the \emph{oldest} one it encountered, so the baseline was really \emph{persistence from up to 72 hours ago}.  Ridge was implemented correctly and was unaffected; the models were unaffected because they never used that code path.  After the fix, Persistence scores $R^2 = 0.89$ at one hour with MAE = 16.6, matching the raw hourly change, and its overall test MAE moves from 54.8 to 46.8.  No retraining was needed, but every reported baseline number did change, and the earlier headline figures were overstated.
 
 \subsection{Models}
 LSTM (univariate, shared weights applied per station; multivariate, stations as channels), a temporal Transformer, STGCN (spectral graph convolution + GRU), and Graph WaveNet (dilated causal convolutions with a fixed or learned adjacency).
@@ -91,7 +93,7 @@ Model & MAE & RMSE & $R^2$ & 1h & 3h & 6h & 12h & 24h & 48h \\
 \textbf{lstm\_multivariate\_distance} & \textbf{38.20} $\pm$ 1.83 & 68.47 & 0.465 & 16.56 & 26.12 & 31.87 & 35.63 & 39.05 & 42.80 \\
 \textbf{transformer\_distance} & \textbf{38.88} $\pm$ 1.04 & 68.94 & 0.457 & 16.44 & 26.19 & 32.09 & 35.08 & 39.00 & 44.55 \\
 Ridge(24 lags) & 44.03 & 73.69 & 0.380 & 15.83 & 28.09 & 39.46 & 47.14 & 36.45 & 42.34 \\
-Persistence & 54.83 & 90.01 & 0.076 & 46.83 & 49.04 & 54.72 & 58.09 & 48.89 & 49.37 \\
+Persistence & 46.79 & 79.01 & 0.288 & 16.55 & 31.15 & 42.78 & 50.09 & 38.41 & 44.74 \\
 \hline
 \end{tabular}
 \end{table}
@@ -155,7 +157,7 @@ graph wavenet learned adaptive minus graph wavenet identity & 1.27 & [0.58, 2.01
 graph wavenet learned adaptive minus graph wavenet wind aware & 0.90 & [0.46, 1.39] & 0.000 & 105 \\
 stgcn identity minus lstm univariate distance & -0.21 & [-0.36, -0.08] & 0.999 & 105 \\
 stgcn identity minus Ridge(24 lags) & -11.27 & [-13.02, -9.65] & 1.000 & 105 \\
-stgcn identity minus Persistence & -22.21 & [-25.69, -18.98] & 1.000 & 105 \\
+stgcn identity minus Persistence & -14.02 & [-16.05, -12.08] & 1.000 & 105 \\
 \hline
 \end{tabular}
 \end{table}
@@ -222,9 +224,9 @@ The three events behave differently, and the differences are informative. In the
 \hline
 event & start & peak & persistence & ridge & no graph & wind-aware & GWN wind  \\
 \hline
-Diwali 2024 & 2024-10-30 12:00 & 221 & 70.77 & 59.49 & 65.93 & 81.65 & 92.31 \\
-Winter inversion & 2024-01-13 18:00 & 574 & 59.92 & 86.26 & 20.13 & 19.97 & 27.18 \\
-Dust storm & 2024-05-10 16:00 & 162 & 24.13 & 15.62 & 17.84 & 15.46 & 14.46 \\
+Diwali 2024 & 2024-10-30 12:00 & 221 & 53.84 & 59.49 & 65.93 & 81.65 & 92.31 \\
+Winter inversion & 2024-01-13 18:00 & 574 & 108.57 & 86.26 & 20.13 & 19.97 & 27.18 \\
+Dust storm & 2024-05-10 16:00 & 162 & 15.48 & 15.62 & 17.84 & 15.46 & 14.46 \\
 \hline
 \end{tabular}
 \end{table}
@@ -295,7 +297,9 @@ graph\_wavenet\_distance & 34.69 & -- & -- \\
 \end{tabular}
 \end{table}
 
-Every model is three to five times worse during severe episodes than outside them, and the spread between models widens there: the best configuration scores -- inside episodes against -- outside, whereas the best baselines are considerably further back. Extreme pollution is where these architectures are weakest, and no graph structure fixes it. If the practical goal is episode forecasting rather than average accuracy, that is where the remaining work should go.
+One feature of the per-horizon tables deserves a note: the error of the baselines is not monotone in the horizon, with the 12-hour column worse than the 24-hour column.  This is a property of the data rather than an artefact of the evaluation.  Delhi's PM2.5 has a strong diurnal cycle with a peak-to-trough amplitude of 51 $\mu$g/m$^3$, so a 12-hour horizon lands on the opposite phase of that cycle while a 24-hour horizon returns to the same phase.  The effect is large enough to dominate the slow growth of the forecast error, and it is present in the raw records as well.
+
+Every model is three to five times worse during severe episodes
 
 \section{Discussion}
 \subsection{What the graph comparison shows}
