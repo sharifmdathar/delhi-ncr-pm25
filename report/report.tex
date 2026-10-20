@@ -428,6 +428,32 @@ Ridge (fit on training stations only) & 47.48 & 0.378 & 16.66 & 39.52 & 44.79  \
 Network mean (persistence) & 47.01 & 0.402 & 28.45 & 40.83 & 45.11  \\
 IDW neighbour (persistence) & 47.65 & 0.376 & 28.77 & 41.86 & 46.28  \\
 IDW neighbour (seasonal) & 41.24 & 0.506 & 41.39 & 41.77 & 41.31  \\
+graph\_wavenet\_distance\_s123\_lso10\_both\_nd30 & 42.14 & 0.455 & 36.59 & 42.94 & 45.27  \\
+graph\_wavenet\_distance\_s42\_lso10\_both\_nd30 & 41.60 & 0.456 & 35.99 & 42.55 & 45.14  \\
+graph\_wavenet\_distance\_s456\_lso10\_both\_nd30 & 41.72 & 0.467 & 35.95 & 41.87 & 44.63  \\
+graph\_wavenet\_identity\_s123\_lso10\_both\_nd30 & 65.43 & -0.147 & 66.02 & 66.19 & 66.05  \\
+graph\_wavenet\_identity\_s42\_lso10\_both\_nd30 & 65.39 & -0.139 & 65.96 & 66.16 & 66.06  \\
+graph\_wavenet\_identity\_s456\_lso10\_both\_nd30 & 65.91 & -0.061 & 66.39 & 66.87 & 66.81  \\
+graph\_wavenet\_wind\_aware\_s123\_lso10\_both\_nd30 & 42.36 & 0.498 & 35.32 & 42.35 & 44.39  \\
+graph\_wavenet\_wind\_aware\_s42\_lso10\_both\_nd30 & 41.94 & 0.488 & 35.87 & 42.22 & 44.31  \\
+graph\_wavenet\_wind\_aware\_s456\_lso10\_both\_nd30 & 41.34 & 0.494 & 34.41 & 41.58 & 43.27  \\
+stgcn\_distance\_s123\_lso10\_both\_nd30 & 42.55 & 0.432 & 37.35 & 43.09 & 44.84  \\
+stgcn\_distance\_s42\_lso10\_both\_nd30 & 41.78 & 0.462 & 34.96 & 43.02 & 44.75  \\
+stgcn\_distance\_s456\_lso10\_both\_nd30 & 42.64 & 0.430 & 35.87 & 44.52 & 46.57  \\
+stgcn\_identity\_s123\_lso10\_both\_nd30 & 65.38 & -0.107 & 66.06 & 66.15 & 66.05  \\
+stgcn\_identity\_s42\_lso10\_both\_nd30 & 65.35 & -0.119 & 65.98 & 66.13 & 66.05  \\
+stgcn\_identity\_s456\_lso10\_both\_nd30 & 65.38 & -0.107 & 66.00 & 66.18 & 66.11  \\
+stgcn\_wind\_aware\_s123\_lso10\_both\_nd30 & 42.38 & 0.460 & 37.67 & 42.68 & 43.97  \\
+stgcn\_wind\_aware\_s42\_lso10\_both\_nd30 & 41.33 & 0.490 & 33.98 & 42.59 & 44.36  \\
+stgcn\_wind\_aware\_s456\_lso10\_both\_nd30 & 41.34 & 0.476 & 35.18 & 42.50 & 44.32  \\
+\textbf{Mode both} --- held out: site\_106, site\_107, site\_108, site\_1422, site\_1427, site\_1432, site\_1434, site\_1435, site\_1561, site\_5024  \\
+Persistence & 50.73 & 0.269 & 17.35 & 42.04 & 47.79  \\
+Seasonal naive (24h) & 41.40 & 0.479 & 41.47 & 42.04 & 41.52  \\
+Hour-of-week average & 63.48 & -0.052 & 63.97 & 64.11 & 64.10  \\
+Ridge (fit on training stations only) & 47.48 & 0.378 & 16.66 & 39.52 & 44.79  \\
+Network mean (persistence) & 47.01 & 0.402 & 28.45 & 40.83 & 45.11  \\
+IDW neighbour (persistence) & 47.65 & 0.376 & 28.77 & 41.86 & 46.28  \\
+IDW neighbour (seasonal) & 41.24 & 0.506 & 41.39 & 41.77 & 41.31  \\
 graph\_wavenet\_distance\_s123\_lso10\_both & 53.82 & 0.136 & 60.90 & 55.04 & 54.89  \\
 graph\_wavenet\_distance\_s42\_lso10\_both & 57.07 & 0.042 & 61.82 & 58.67 & 58.50  \\
 graph\_wavenet\_identity\_s123\_lso10\_both & 71.58 & -0.422 & 78.23 & 73.57 & 70.93  \\
@@ -489,17 +515,58 @@ stgcn distance vs idw persistence & +6.67 & [2.74, 11.13] & 0.000  \\
 stgcn distance vs network mean & +7.31 & [3.32, 11.73] & 0.000  \\
 graph wavenet distance vs idw seasonal & +14.20 & [9.43, 19.55] & 0.000  \\
 idw seasonal vs network mean & -5.77 & [-7.39, -4.24] & 1.000  \\
+stgcn distance vs stgcn identity & -23.04 & [-28.08, -18.38] & 1.000  \\
+stgcn wind aware vs stgcn identity & -23.69 & [-28.96, -18.73] & 1.000  \\
+stgcn distance vs idw seasonal & +1.08 & [-0.41, 2.75] & 0.082  \\
+stgcn distance vs network mean & -4.68 & [-6.29, -2.99] & 1.000  \\
+graph wavenet distance vs idw seasonal & +0.58 & [-0.88, 2.22] & 0.242  \\
 \hline
 \end{tabular}
 \end{table}
 
 \subsection{Does node dropout rescue the graph?}
-label{sec:nodedropout}
+\label{sec:nodedropout}
 The caveat above is testable.  If the plain leave-station-out result was a handicap---the models never having practised a station whose own history was missing---then training them with node dropout should close the gap.  In node dropout, each training window hides a random 30\% of the stations' own history, and the model must still predict those stations, from the graph.  The held-out condition is then one the model has seen many times in training.
 
+\begin{table}[htbp]
+\centering
+\caption{Node dropout: the models are trained with a random 30\% of stations' own history hidden in each training window, so the held-out condition is one they have practised.  MAE on the held-out stations, own history hidden.}
+\begin{tabular}{lrr}
+\hline
+configuration & MAE & $R^2$  \\
+\hline
+Persistence & 50.73 & 0.269  \\
+Seasonal naive (24h) & 41.40 & 0.479  \\
+Hour-of-week average & 63.48 & -0.052  \\
+Ridge (fit on training stations only) & 47.48 & 0.378  \\
+Network mean (persistence) & 47.01 & 0.402  \\
+IDW neighbour (persistence) & 47.65 & 0.376  \\
+IDW neighbour (seasonal) & 41.24 & 0.506  \\
+graph wavenet distance / lso10 both nd30 & 42.14 & 0.455  \\
+graph wavenet distance / lso10 both nd30 & 41.60 & 0.456  \\
+graph wavenet distance s456 nd30 & 41.72 & 0.467  \\
+graph wavenet identity / lso10 both nd30 & 65.43 & -0.147  \\
+graph wavenet identity / lso10 both nd30 & 65.39 & -0.139  \\
+graph wavenet identity s456 nd30 & 65.91 & -0.061  \\
+graph wavenet wind aware / lso10 both nd30 & 42.36 & 0.498  \\
+graph wavenet wind aware / lso10 both nd30 & 41.94 & 0.488  \\
+graph wavenet wind aware s456 nd30 & 41.34 & 0.494  \\
+stgcn distance / lso10 both nd30 & 42.55 & 0.432  \\
+stgcn distance / lso10 both nd30 & 41.78 & 0.462  \\
+stgcn distance s456 nd30 & 42.64 & 0.430  \\
+stgcn identity / lso10 both nd30 & 65.38 & -0.107  \\
+stgcn identity / lso10 both nd30 & 65.35 & -0.119  \\
+stgcn identity s456 nd30 & 65.38 & -0.107  \\
+stgcn wind aware / lso10 both nd30 & 42.38 & 0.460  \\
+stgcn wind aware / lso10 both nd30 & 41.33 & 0.490  \\
+stgcn wind aware s456 nd30 & 41.34 & 0.476  \\
+\hline
+\end{tabular}
+\end{table}
 
+It closes most of the gap, and that changes the conclusion rather than confirming it.  Without node dropout the best graph model scores 54.32 against the interpolation baseline's 41.24---a deficit of 13.1 $\mu$g/m$^3$.  With node dropout it scores 42.33, against the same 41.24: a deficit of 1.1.  The paired bootstrap over test weeks now puts the difference at 1.08 $\mu$g/m$^3$ with an interval of [-0.41, 2.75], which straddles zero.  In other words, once the model has practised the condition, a graph neural network and an inverse-distance-weighted average of the neighbours are statistically indistinguishable, while both are clearly better than the network-wide mean.
 
-
+So the honest statement is neither the one we first wrote down nor its opposite.  The plain leave-station-out experiment was dominated by a handicap: the models had never been asked to forecast a station without its own history, and that cost them most of the apparent deficit.  With the handicap removed, the graph neither rescues the case for spatial structure nor is refuted by it---it matches a two-line distance weighting, and beats a network-wide average by 4.7 $\mu$g/m$^3$.  For the main experiment the conclusion is unchanged, because there the station's own history is available and the graph is simply a cost.
 
 \subsection{Severe episodes}
 

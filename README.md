@@ -22,11 +22,14 @@ or wind-aware edges beat strong non-graph models for hourly PM2.5 forecasting
   an artefact of the wind data. This tests one edge construction, not
   wind-aware graphs in general.
 - For a station the model has never seen and whose own history is missing,
-  **inverse-distance interpolation of the neighbours beats the graph models I
-  trained** (13.1 µg/m³ better, CI [8.7, 18.0]) — but those models were trained
-  for forecasting, never for a missing own history, so read that as "graph
-  models trained for forecasting do not transfer to unseen stations better than
-  IDW", not as a general verdict on GNNs.
+  **a graph neural network and inverse-distance interpolation of the neighbours
+  are statistically indistinguishable** — 1.08 µg/m³ apart, CI [−0.41, 2.75] —
+  and both beat the network-wide mean by about 5 µg/m³. That comparison is only
+  fair once the models are trained with **node dropout** (a random 30% of
+  stations' own history hidden per training window), so they have practised the
+  condition; without that practice they are 13.1 µg/m³ behind IDW. So the
+  finding is that spatial structure *matches* simple interpolation for a
+  station with no history of its own — it does not beat it.
 
 **Data and integrity.** Hourly CPCB data (`Vonter/india-cpcb-aqi`, ODbL); see
 [DATA_CARD.md](DATA_CARD.md) and [LICENCE.md](LICENCE.md). Targets are never
@@ -252,7 +255,41 @@ nothing else.
 
 Read together: the neighbours do not carry as much information about a
 station as that station's own recent observations, and a graph neural network
-mixes them *worse* than an inverse-distance-weighted average does.
+mixes them about as well as an inverse-distance-weighted average does — no
+better, and (when the station's own history is available) worse, because
+mixing dilutes the autoregressive signal.
+
+### Does node dropout rescue the graph?
+
+The leave-station-out comparison is a handicap: the models are trained to
+forecast a station *from its own history* and are then asked to forecast one
+whose own history has been removed — a situation they never practised, while
+the interpolation baselines have no such dependence because they never use the
+station's own history at all. So we trained them with **node dropout**: each
+training window hides a random 30% of the stations' own history, and the model
+must still predict those stations from the graph.
+
+| configuration (own history hidden) | no node dropout | with node dropout |
+|-----------------------------------|-----------------|------------------|
+| STGCN, distance graph | 54.32 | 42.33 |
+| STGCN, wind-aware graph | 55.54 | 41.68 |
+| GraphWaveNet, distance graph | 55.44 | 41.82 |
+| GraphWaveNet, wind-aware graph | 57.82 | 41.88 |
+| STGCN, no graph | 69.19 | 65.37 |
+| **IDW neighbour (seasonal)** | **41.24** | **41.24** |
+| network mean (persistence) | 47.01 | 47.01 |
+
+(Seed-averaged; the interpolation baselines are unaffected by training, so
+their rows are the same in both columns.)
+
+The handicap was real and it was most of the story. With node dropout the
+paired difference against IDW is **1.08 µg/m³, CI [−0.41, 2.75]** — the two
+are statistically indistinguishable, and both beat the network-wide mean by
+4.7 µg/m³. So the defensible claim is: *for a station with no history of its
+own, a graph neural network matches simple spatial interpolation* — it neither
+beats it nor is refuted by it. The main experiment's conclusion is unchanged,
+because there the station's own history is available and the graph is simply
+a cost.
 
 Full tables (all horizons, episode analysis, per-station errors) in
 [`RESULTS_SUMMARY.md`](RESULTS_SUMMARY.md).

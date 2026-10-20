@@ -147,8 +147,38 @@ def main():
             blocks.append("\n".join(rows_l))
         lso_md = "\n\n".join(blocks)
 
+    # ---------------- node dropout ----------------
+    nd_md = ""
+    _lso_p = OUT / "lso_results.json"
+    lso_all = json.loads(_lso_p.read_text()) if _lso_p.exists() else []
+    _plain = next((g for g in lso_all if g.get("variant") == "plain"
+                   and g.get("mode") == "both"), None)
+    _nd = next((g for g in lso_all if g.get("variant") == "node-dropout"
+                and g.get("mode") == "both"), None)
+    if _plain and _nd:
+        def _mean(g, key):
+            vals = [r["mae"] for r in g.get("rows", [])
+                    if key + "_s" in r["name"]]
+            return sum(vals) / len(vals) if vals else None
+        rows_nd = []
+        for key, label in [("stgcn_distance", "STGCN, distance"),
+                           ("stgcn_wind_aware", "STGCN, wind-aware"),
+                           ("graph_wavenet_distance", "GraphWaveNet, distance"),
+                           ("graph_wavenet_wind_aware", "GraphWaveNet, wind-aware"),
+                           ("stgcn_identity", "STGCN, no graph")]:
+            a, b = _mean(_plain, key), _mean(_nd, key)
+            if a is None or b is None:
+                continue
+            rows_nd.append(f"| {label} | {a:.2f} | {b:.2f} |")
+        for r in _plain.get("rows", []):
+            if "IDW neighbour (seasonal)" in r["name"] or "Network mean" in r["name"]:
+                rows_nd.append(f"| {r['name']} | {r['mae']:.2f} | {r['mae']:.2f} |")
+        nd_md = "\n".join(rows_nd)
+
     # ---------- rolling origin ----------
     exp = json.loads((OUT / "expanding_window.json").read_text())
+    _lso_path = OUT / "lso_results.json"
+    lso_all = json.loads(_lso_path.read_text()) if _lso_path.exists() else []
     roll_rows = []
     for r in exp["rows"]:
         present = {c: r[c] for c in ("identity", "wind_aware", "distance") if r.get(c) is not None}
@@ -304,10 +334,27 @@ training.
 
 **The corrected result.** In the second variant (own history hidden as well) a
 two-line inverse-distance-weighted average of the neighbours reaches 41.24
-(R² = 0.51) while the best graph model reaches 53.45 (R² = 0.15) — the graph
-is **14.3 µg/m³ worse**, CI [9.9, 19.1]. An earlier version of this summary
+(R² = 0.51) while the best graph model reaches 54.32 (R² = 0.13) — the graph
+is **13.1 µg/m³ worse**, CI [8.7, 18.0]. An earlier version of this summary
 reported the opposite, against a no-graph model that had no information at
 all.
+
+## Does node dropout rescue the graph?
+
+The leave-station-out comparison is a handicap: the models are trained to
+forecast a station from its own history, and are then asked to forecast one
+whose own history was removed. With node dropout (a random 30% of stations'
+own history hidden per training window) the model has practised the condition.
+
+| configuration (own history hidden) | no node dropout | with node dropout |
+|---|---|---|
+{nd_md}
+
+The handicap was most of the story. With node dropout the paired difference
+against the IDW baseline is **1.08 µg/m³, CI [−0.41, 2.75]** — statistically
+indistinguishable — and both beat the network-wide mean by 4.7 µg/m³. So for a
+station with no history of its own, a graph neural network *matches* simple
+spatial interpolation: it neither beats it nor is refuted by it.
 
 ## Severe episodes
 

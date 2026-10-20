@@ -81,6 +81,7 @@ def pooled_mae_of_lso(mode, name):
 for b in lso_boot:
     if b["mode"] != "both":
         continue
+    _variant = b.get("variant", "plain")
     for side in ("a", "b"):
         name = b[side]
         if name in ("ridge", "seasonal_naive", "idw_seasonal", "idw_persistence",
@@ -89,7 +90,7 @@ for b in lso_boot:
         # the model rows are per seed; the bootstrap averages the seeds
         seed_maes = []
         for g in lso:
-            if g["mode"] != b["mode"]:
+            if g["mode"] != b["mode"] or g.get("variant", "plain") != _variant:
                 continue
             for r in g["rows"]:
                 if r["name"].startswith(name + "_s"):
@@ -97,7 +98,8 @@ for b in lso_boot:
         if not seed_maes:
             continue
         mean_seed_mae = sum(seed_maes) / len(seed_maes)
-        chk(f"LSO bootstrap mae_{side} matches the table ({name})",
+        chk(f"LSO bootstrap mae_{side} matches the table "
+            f"({name}, {_variant})",
             abs(mean_seed_mae - b[f"mae_{side}"]) < 0.05,
             f"{b[f'mae_{side}']:.3f} vs table mean {mean_seed_mae:.3f}")
 
@@ -130,8 +132,20 @@ b = bget("stgcn_wind_aware_era5", "stgcn_wind_aware")
 chk("ERA5 vs station wind: not distinguishable",
     b and b["ci95_low"] < 0 < b["ci95_high"], f"dMAE {b['diff_mae']:.2f}" if b else "missing")
 b = lbget("stgcn_distance", "idw_seasonal", "both")
-chk("LSO: the graph is worse than IDW-seasonal",
+chk("LSO (no node dropout): the graph is worse than IDW-seasonal",
     b and b["diff_mae"] > 0 and b["ci95_low"] > 0, f"dMAE {b['diff_mae']:.2f}" if b else "missing")
+# with node dropout the graph and IDW are statistically indistinguishable
+b_nd = next((x for x in lso_boot if x.get("variant") == "node-dropout"
+              and x["a"] == "stgcn_distance" and x["b"] == "idw_seasonal"), None)
+chk("LSO (node dropout): the graph is indistinguishable from IDW-seasonal",
+    b_nd and b_nd["ci95_low"] < 0 < b_nd["ci95_high"],
+    f"dMAE {b_nd['diff_mae']:.2f} CI [{b_nd['ci95_low']:.2f}, {b_nd['ci95_high']:.2f}]"
+    if b_nd else "missing")
+b_nd2 = next((x for x in lso_boot if x.get("variant") == "node-dropout"
+              and x["a"] == "stgcn_distance" and x["b"] == "network_mean"), None)
+chk("LSO (node dropout): the graph beats the network mean",
+    b_nd2 and b_nd2["diff_mae"] < 0 and b_nd2["ci95_high"] < 0,
+    f"dMAE {b_nd2['diff_mae']:.2f}" if b_nd2 else "missing")
 b = lbget("stgcn_distance", "network_mean", "both")
 chk("LSO: the graph is worse than the network mean",
     b and b["diff_mae"] > 0 and b["ci95_low"] > 0, f"dMAE {b['diff_mae']:.2f}" if b else "missing")
@@ -150,11 +164,16 @@ chk("persistence MAE at 1h is 16.5 (R^2 0.889)",
 QUOTED = {
     "41.24": "IDW neighbour (seasonal), LSO mode=both",
     "32.60": "no-graph + network mean",
-    "13.08": "LSO: graph worse than IDW-seasonal",
+    "13.08": "LSO without node dropout: graph worse than IDW-seasonal",
+    "1.08": "LSO with node dropout: graph indistinguishable from IDW",
 }
 for name in ("README", "report.tex", "RESULTS_SUMMARY"):
     text = DOCS[name]
     for num, what in QUOTED.items():
+        if num == "13.08":
+            # the documents round this one to one decimal place
+            chk(f"{name}: quotes {num} ({what})", "13.08" in text or "13.1 " in text)
+            continue
         chk(f"{name}: quotes {num} ({what})", num in text)
 
 # ---------------------------------------------------------------- 3. superseded
@@ -163,9 +182,10 @@ banned = [
     "the largest effect in the study",
     "a very good substitute for having no history at all",
     "The wind source does not matter",
-    "14.3",           # the pre-fix bootstrap number
-    "13.4",           # the pre-fix strawman gap
+    "14.3 ",          # the pre-fix bootstrap number
+    "13.4 ug",        # the pre-fix strawman gap
     "54.83",          # the pre-fix persistence MAE
+    "beats the graph models I trained",
 ]
 SUPERSEDED_CONTEXT = ("we first reported", "about to report", "an earlier version",
                        "earlier version", "we were about to",

@@ -195,7 +195,7 @@ def main():
         def key_for(cfg, mode):
             if cfg in BASELINES:
                 return BASELINES[cfg]
-            return f"{cfg}_lso10_{mode}"
+            return f"{cfg}_lso10_{mode}_nd30"
 
         print(f"\n=== leave-station-out, mode={mode}, NODE DROPOUT ===")
         print(f"{'comparison':<66}{'dMAE':>8}{'95% CI':>22}{'p(A<B)':>9}")

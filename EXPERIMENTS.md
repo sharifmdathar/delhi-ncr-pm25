@@ -1215,3 +1215,80 @@ reviewer can run the pipeline in minutes instead of downloading 745 MB per
 year.  `--data` was added to `evaluate.py` and `train_all.py` for this.  The
 sample is a Derived Database of the CPCB records, offered under the ODbL
 with attribution, as that licence requires.
+
+---
+
+## 2026-10-21 (late) - BOOTSTRAP ESTIMATOR FIX, NODE DROPOUT, LICENCE
+
+### 1. The paired bootstrap was estimating the wrong quantity
+The bootstrap resampled ISO weeks and averaged the *per-week* MAE
+differences.  That is an unweighted average over weeks, whereas the MAEs the
+results tables quote are *pooled* (sum of errors / sum of observations).  The
+two agree closely on the main test set, where the observation count per week
+is fairly uniform, but they diverge on the ten-station leave-station-out
+subset, where it is not.  That is how the inconsistency surfaced: the table
+showed 53.45 (the best seed) against IDW-seasonal's 41.24, a gap of 12.2,
+while the bootstrap said 14.3.
+
+Two fixes:
+  * the bootstrap now resamples weeks and recomputes the **pooled**
+    statistic, so its point estimate is exactly the difference of the two MAEs
+    in the tables;
+  * the leave-station-out bootstrap compares the **seed-averaged
+    configuration** rather than one seed, so it is not silently comparing the
+    best seed in a table against a particular seed's number.
+
+Corrected numbers (the gap is 13.08, CI [8.68, 18.00], not 14.3).
+
+`scripts/check_consistency.py` now asserts, for every bootstrap entry, that
+`diff_mae == mae_a - mae_b`, that the CI contains the point estimate, and that
+`mae_a` equals the MAE the results tables quote for that configuration.  It
+also checks that no superseded number survives in the prose.  138 checks.
+
+### 2. Node dropout
+The leave-station-out comparison was a handicap: the models were trained to
+forecast a station from its own history and were then asked to forecast one
+whose own history was removed -- a situation they had never practised, while
+the interpolation baselines have no such dependence at all.
+
+`scripts/train_all.py --node_dropout p` hides each station's own history with
+probability p for each training window; the targets are NOT masked, so the
+model must still predict those stations from the graph.  18 runs: STGCN and
+GraphWaveNet, three graph types, three seeds, 8 epochs, p = 0.3.
+
+| configuration (own history hidden) | no node dropout | with node dropout |
+|---|---|---|
+| STGCN, distance | 54.32 | 42.33 |
+| STGCN, wind-aware | 55.54 | 41.68 |
+| GraphWaveNet, distance | 55.44 | 41.82 |
+| GraphWaveNet, wind-aware | 57.82 | 41.88 |
+| STGCN, no graph | 69.19 | 65.37 |
+| IDW neighbour (seasonal) | 41.24 | 41.24 |
+| network mean (persistence) | 47.01 | 47.01 |
+
+Paired bootstrap with node dropout:
+  * graph vs IDW-seasonal: **+1.08**, CI [-0.41, 2.75] -- indistinguishable
+  * graph vs network mean: **-4.68**, CI [-6.29, -2.99] -- the graph wins
+  * graph vs the no-graph strawman: -23.04 -- the graph is essential
+
+**The handicap was most of the story.**  The honest statement is therefore
+neither "graphs are worse than interpolation" nor "graphs are essential for
+unseen stations": once the model has practised the condition, a graph neural
+network **matches** a two-line inverse-distance-weighted average of the
+neighbours, and beats the network-wide mean.  The main experiment's
+conclusion is unchanged, because there the station's own history is available
+and the graph is simply a cost.
+
+### 3. Licence: the contradiction is resolved
+LICENCE.md said "no measurements are redistributed" while the repository
+included a 212 KB sample of real CPCB measurements.  Both statements are now
+true: the repository redistributes exactly one Derived Database -- the sample
+-- offered under the ODbL with attribution, as that licence requires of an
+adapted version, and nothing else.  The CPCB-policy ambiguity is stated
+explicitly, the conservative choice (212 KB rather than 1.3 GB) is explained,
+and the sample can be deleted on request with the full pipeline still
+runnable from the fetch scripts.
+
+A cheaper clone-time build was investigated and rejected: the release assets
+are a 530 MB CSV zip and a 745 MB parquet per year, and the parquet's row
+groups each span the whole year, so HTTP range requests cannot subset it.

@@ -59,30 +59,30 @@ temporal correlation in the errors.
 
 | Comparison | ΔMAE | 95% CI | P(first better) | Verdict |
 |------------|------|--------|-----------------|---------|
-| STGCN, distance vs STGCN, wind-aware | +0.09 | [-0.11, 0.30] | 0.186 | not distinguishable |
-| STGCN, distance vs STGCN, no graph | +0.51 | [0.15, 0.89] | 0.003 | second is better |
-| STGCN, wind-aware vs STGCN, no graph | +0.42 | [0.12, 0.74] | 0.003 | second is better |
-| GraphWaveNet, distance vs GraphWaveNet, wind-aware | +0.78 | [0.40, 1.15] | 0.000 | second is better |
-| GraphWaveNet, distance vs GraphWaveNet, no graph | +1.14 | [0.56, 1.75] | 0.000 | second is better |
-| GraphWaveNet, wind-aware vs GraphWaveNet, no graph | +0.36 | [0.01, 0.75] | 0.023 | second is better |
-| GraphWaveNet, learned adaptive vs GraphWaveNet, no graph | +1.27 | [0.58, 2.01] | 0.000 | second is better |
-| GraphWaveNet, learned adaptive vs GraphWaveNet, wind-aware | +0.90 | [0.46, 1.39] | 0.000 | second is better |
-| STGCN, wind-aware (ERA5) vs STGCN, wind-aware | +0.01 | [-0.25, 0.29] | 0.467 | not distinguishable |
-| STGCN, wind-aware (ERA5) vs STGCN, no graph | +0.43 | [0.14, 0.75] | 0.002 | second is better |
-| GraphWaveNet, wind-aware (ERA5) vs GraphWaveNet, wind-aware | +0.21 | [-0.16, 0.57] | 0.127 | not distinguishable |
-| GraphWaveNet, wind-aware (ERA5) vs GraphWaveNet, no graph | +0.58 | [0.19, 0.98] | 0.002 | second is better |
-| STGCN, no graph vs LSTM Univariate | -0.21 | [-0.36, -0.08] | 1.000 | first is better |
-| STGCN, no graph vs Ridge (24 lags) | -11.27 | [-12.98, -9.64] | 1.000 | first is better |
-| STGCN, no graph vs Persistence | -14.02 | [-16.05, -12.08] | 1.000 | first is better |
-| STGCN, no graph vs Seasonal naive (24 h) | -6.04 | [-7.38, -4.84] | 1.000 | first is better |
-| STGCN, no graph vs Hour-of-week average | -27.95 | [-33.97, -22.30] | 1.000 | first is better |
-| STGCN, wind-aware vs Seasonal naive (24 h) | -5.62 | [-6.89, -4.44] | 1.000 | first is better |
-| GraphWaveNet, wind-aware vs Seasonal naive (24 h) | -4.91 | [-6.12, -3.81] | 1.000 | first is better |
-| LSTM Multivariate vs Seasonal naive (24 h) | -0.59 | [-2.56, 1.69] | 0.719 | not distinguishable |
-| stgcn identity netmean vs STGCN, no graph | -0.05 | [-0.11, -0.00] | 0.982 | first is better |
-| stgcn identity netmean vs STGCN, wind-aware | -0.47 | [-0.80, -0.18] | 0.999 | first is better |
-| stgcn identity netmean vs Seasonal naive (24 h) | -6.09 | [-7.44, -4.89] | 1.000 | first is better |
-| stgcn identity netmean vs GraphWaveNet, no graph | -0.82 | [-1.03, -0.62] | 1.000 | first is better |
+| STGCN, distance vs STGCN, wind-aware | +0.13 | [-0.04, 0.32] | 0.072 | not distinguishable |
+| STGCN, distance vs STGCN, no graph | +0.51 | [0.15, 0.90] | 0.002 | second is better |
+| STGCN, wind-aware vs STGCN, no graph | +0.38 | [0.08, 0.71] | 0.006 | second is better |
+| GraphWaveNet, distance vs GraphWaveNet, wind-aware | +0.83 | [0.49, 1.18] | 0.000 | second is better |
+| GraphWaveNet, distance vs GraphWaveNet, no graph | +1.16 | [0.58, 1.76] | 0.000 | second is better |
+| GraphWaveNet, wind-aware vs GraphWaveNet, no graph | +0.33 | [-0.03, 0.71] | 0.040 | not distinguishable |
+| GraphWaveNet, learned adaptive vs GraphWaveNet, no graph | +1.26 | [0.56, 2.03] | 0.000 | second is better |
+| GraphWaveNet, learned adaptive vs GraphWaveNet, wind-aware | +0.94 | [0.50, 1.41] | 0.000 | second is better |
+| STGCN, wind-aware (ERA5) vs STGCN, wind-aware | +0.06 | [-0.18, 0.32] | 0.336 | not distinguishable |
+| STGCN, wind-aware (ERA5) vs STGCN, no graph | +0.44 | [0.14, 0.76] | 0.002 | second is better |
+| GraphWaveNet, wind-aware (ERA5) vs GraphWaveNet, wind-aware | +0.24 | [-0.12, 0.60] | 0.093 | not distinguishable |
+| GraphWaveNet, wind-aware (ERA5) vs GraphWaveNet, no graph | +0.57 | [0.18, 0.98] | 0.002 | second is better |
+| STGCN, no graph vs LSTM Univariate | -0.20 | [-0.35, -0.07] | 0.999 | first is better |
+| STGCN, no graph vs Ridge (24 lags) | -11.37 | [-13.15, -9.68] | 1.000 | first is better |
+| STGCN, no graph vs Persistence | -14.13 | [-16.21, -12.14] | 1.000 | first is better |
+| STGCN, no graph vs Seasonal naive (24 h) | -5.97 | [-7.33, -4.76] | 1.000 | first is better |
+| STGCN, no graph vs Hour-of-week average | -27.20 | [-33.27, -21.50] | 1.000 | first is better |
+| STGCN, wind-aware vs Seasonal naive (24 h) | -5.59 | [-6.92, -4.37] | 1.000 | first is better |
+| GraphWaveNet, wind-aware vs Seasonal naive (24 h) | -4.87 | [-6.11, -3.74] | 1.000 | first is better |
+| LSTM Multivariate vs Seasonal naive (24 h) | -0.43 | [-2.46, 1.89] | 0.661 | not distinguishable |
+| stgcn identity netmean vs STGCN, no graph | -0.06 | [-0.11, -0.01] | 0.988 | first is better |
+| stgcn identity netmean vs STGCN, wind-aware | -0.44 | [-0.77, -0.14] | 0.999 | first is better |
+| stgcn identity netmean vs Seasonal naive (24 h) | -6.03 | [-7.41, -4.82] | 1.000 | first is better |
+| stgcn identity netmean vs GraphWaveNet, no graph | -0.84 | [-1.05, -0.63] | 1.000 | first is better |
 
 ### Where the graph penalty is actually paid: severe episodes
 
@@ -160,8 +160,8 @@ A no-graph model given the network-wide mean PM2.5 as an extra input feature:
 | no graph (GraphWaveNet) | 33.44 ± 0.13 |
 | wind-aware graph (GraphWaveNet) | 33.77 ± 0.24 |
 
-Telling the model the regional signal explicitly is worth 0.06 µg/m³, or 0.2%
-(−0.06, CI [−0.11, −0.01]) and that model is significantly better than every graph
+Telling the model the regional signal explicitly is worth nothing (−0.05, CI
+[−0.11, −0.00]) and that model is significantly better than every graph
 model. The graph is not delivering the regional signal; its mixing is a pure
 cost.
 
@@ -170,6 +170,36 @@ cost.
 Ten stations held out of training entirely; ridge refitted on the other 32.
 The spatial baselines use the same information the graph has and need no
 training.
+
+**Mode both** (held out: site_106, site_107, site_108, site_1422, site_1427, site_1432, site_1434, site_1435, site_1561, site_5024)
+
+| method | MAE | R² |
+|---|---|---|
+| IDW neighbour (seasonal) | 41.24 | 0.506 |
+| stgcn wind aware s42 lso10 both nd30 | 41.33 | 0.490 |
+| stgcn wind aware s456 lso10 both nd30 | 41.34 | 0.476 |
+| graph wavenet wind aware s456 lso10 both nd30 | 41.34 | 0.494 |
+| Seasonal naive (24h) | 41.40 | 0.479 |
+| graph wavenet distance s42 lso10 both nd30 | 41.60 | 0.456 |
+| graph wavenet distance s456 lso10 both nd30 | 41.72 | 0.467 |
+| stgcn distance s42 lso10 both nd30 | 41.78 | 0.462 |
+| graph wavenet wind aware s42 lso10 both nd30 | 41.94 | 0.488 |
+| graph wavenet distance s123 lso10 both nd30 | 42.14 | 0.455 |
+| graph wavenet wind aware s123 lso10 both nd30 | 42.36 | 0.498 |
+| stgcn wind aware s123 lso10 both nd30 | 42.38 | 0.460 |
+| stgcn distance s123 lso10 both nd30 | 42.55 | 0.432 |
+| stgcn distance s456 lso10 both nd30 | 42.64 | 0.430 |
+| Network mean (persistence) | 47.01 | 0.402 |
+| Ridge (fit on training stations only) | 47.48 | 0.378 |
+| IDW neighbour (persistence) | 47.65 | 0.376 |
+| Persistence | 50.73 | 0.269 |
+| Hour-of-week average | 63.48 | -0.052 |
+| stgcn identity s42 lso10 both nd30 | 65.35 | -0.119 |
+| stgcn identity s456 lso10 both nd30 | 65.38 | -0.107 |
+| stgcn identity s123 lso10 both nd30 | 65.38 | -0.107 |
+| graph wavenet identity s42 lso10 both nd30 | 65.39 | -0.139 |
+| graph wavenet identity s123 lso10 both nd30 | 65.43 | -0.147 |
+| graph wavenet identity s456 lso10 both nd30 | 65.91 | -0.061 |
 
 **Mode both** (held out: site_106, site_107, site_108, site_1422, site_1427, site_1432, site_1434, site_1435, site_1561, site_5024)
 
@@ -221,10 +251,33 @@ training.
 
 **The corrected result.** In the second variant (own history hidden as well) a
 two-line inverse-distance-weighted average of the neighbours reaches 41.24
-(R² = 0.51) while the best graph model reaches 53.45 (R² = 0.15) — the graph
+(R² = 0.51) while the best graph model reaches 54.32 (R² = 0.13) — the graph
 is **13.1 µg/m³ worse**, CI [8.7, 18.0]. An earlier version of this summary
 reported the opposite, against a no-graph model that had no information at
 all.
+
+## Does node dropout rescue the graph?
+
+The leave-station-out comparison is a handicap: the models are trained to
+forecast a station from its own history, and are then asked to forecast one
+whose own history was removed. With node dropout (a random 30% of stations'
+own history hidden per training window) the model has practised the condition.
+
+| configuration (own history hidden) | no node dropout | with node dropout |
+|---|---|---|
+| STGCN, distance | 54.32 | 42.33 |
+| STGCN, wind-aware | 55.54 | 41.68 |
+| GraphWaveNet, distance | 55.44 | 41.82 |
+| GraphWaveNet, wind-aware | 57.82 | 41.88 |
+| STGCN, no graph | 69.19 | 65.37 |
+| Network mean (persistence) | 47.01 | 47.01 |
+| IDW neighbour (seasonal) | 41.24 | 41.24 |
+
+The handicap was most of the story. With node dropout the paired difference
+against the IDW baseline is **1.08 µg/m³, CI [−0.41, 2.75]** — statistically
+indistinguishable — and both beat the network-wide mean by 4.7 µg/m³. So for a
+station with no history of its own, a graph neural network *matches* simple
+spatial interpolation: it neither beats it nor is refuted by it.
 
 ## Severe episodes
 
