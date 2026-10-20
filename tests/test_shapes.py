@@ -9,12 +9,6 @@ OUTPUT_HOURS = 48
 HORIZONS = [1, 3, 6, 12, 24, 48]
 
 
-@pytest.fixture(scope="module")
-def ds():
-    from src.data.dataset import load_dataset
-    if not DATASET.exists():
-        pytest.skip(f"{DATASET} not built; run scripts/build_dataset.py")
-    return load_dataset(DATASET)
 
 
 def test_required_arrays_exist(ds):

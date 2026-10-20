@@ -13,12 +13,6 @@ from pathlib import Path
 DATASET = Path("data/processed/delhi_ncr_pm25_2019_2025.npz")
 
 
-@pytest.fixture(scope="module")
-def ds():
-    from src.data.dataset import load_dataset
-    if not DATASET.exists():
-        pytest.skip(f"{DATASET} not built; run scripts/build_dataset.py")
-    return load_dataset(DATASET)
 
 
 def test_no_value_is_fabricated(ds):

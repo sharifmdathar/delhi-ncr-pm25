@@ -14,12 +14,6 @@ INPUT_HOURS = 72
 OUTPUT_HOURS = 48
 
 
-@pytest.fixture(scope="module")
-def ds():
-    from src.data.dataset import load_dataset
-    if not DATASET.exists():
-        pytest.skip(f"{DATASET} not built; run scripts/build_dataset.py")
-    return load_dataset(DATASET)
 
 
 def test_splits_are_disjoint_and_chronological(ds):
