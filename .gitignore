@@ -1,9 +1,26 @@
-# Raw and processed data are regenerable from the fetch scripts
-data/raw/
+# ---------------------------------------------------------------------------
+# Raw observational data is NEVER committed.
+#
+# The CPCB records are published under the Open Database Licence, and the ERA5
+# files under the Copernicus licence; neither is ours to redistribute, and
+# both are large.  Everything under data/raw/ is regenerable with the fetch
+# scripts in scripts/ (see DATA_CARD.md for licences and access terms).
+#
+# The only exceptions are the small station-metadata tables, which are public
+# reference data (station names, cities, coordinates) and are needed to
+# rebuild the graphs.
+# ---------------------------------------------------------------------------
+data/raw/**
+!data/raw/stations.csv
+!data/raw/cpcb_stations.csv
+!data/raw/station_coords.csv
+!data/raw/cpcb_station_catalog.csv
+
+# The frozen dataset and its coverage report are regenerable, and large
 data/processed/*.npz
 data/processed/coverage_report.csv
 
-# Large model checkpoints are regenerable from scripts/train_all.py
+# Large model checkpoints are regenerable with scripts/train_all.py
 checkpoints/*.pt
 
 # Python
@@ -17,6 +34,9 @@ outputs/*.png
 outputs/*.gif
 outputs/*.json
 outputs/*.log
+outputs/*.npy
+outputs/*.npz
+outputs/fold_*/
 
 # LaTeX build artefacts
 report/*.aux

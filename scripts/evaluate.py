@@ -94,6 +94,88 @@ def _clean_lags(y, mask, m, j, lag):
     return w
 
 
+def seasonal_naive_predictions(ds, starts, period=24):
+    """Value observed one seasonal period before the target.
+
+    With a 51 ug/m3 diurnal cycle in Delhi's PM2.5, the value 24 hours before
+    the target is a much stronger baseline than plain persistence, and it is
+    the one that matters at 24 h and 48 h.  For each station we take the most
+    recent observed value at or before (target time - period).
+    """
+    y = ds["y_full"]
+    mask = ds["mask_y"]
+    n_st = y.shape[1]
+    preds, targets, masks = [], [], []
+    for s in starts:
+        s = int(s)
+        m, e = s + 72, s + 72 + 48
+        for h in range(48):
+            tgt = m + h
+            # most recent observed value at or before tgt - period
+            last = np.full(n_st, np.nan, dtype=np.float64)
+            for back in range(0, 200):
+                idx = tgt - period - back
+                if idx < 0:
+                    break
+                cand = y[idx].astype(np.float64)
+                obs = mask[idx] > 0
+                take = obs & ~np.isfinite(last)
+                last = np.where(take, cand, last)
+            if h == 0:
+                col = last[None, :]
+            else:
+                col = np.concatenate([col, last[None, :]], axis=0)
+        preds.append(col)
+        targets.append(y[m:e])
+        masks.append(mask[m:e])
+    return (np.stack(preds), np.stack(targets), np.stack(masks))
+
+
+def hour_of_week_predictions(ds, starts):
+    """Hour-of-week historical average per station, fitted on the train split.
+
+    For each station and each ISO week-hour (168 slots) we take the mean
+    observed PM2.5 over the training split.  This is the "floor" baseline
+    from the project spec: it captures the seasonal and weekly structure of
+    Delhi's pollution without using any recent observation.
+    """
+    y = ds["y_full"]
+    mask = ds["mask_y"]
+    ts = pd.to_datetime(ds["timestamps"], unit="s")
+    # Monday=0 .. Sunday=6, plus hour -> 168 slots
+    how = ts.dayofweek.astype(np.int32) * 24 + ts.hour.astype(np.int32)
+
+    tr = ds["split_indices_train"]
+    tr = slice(int(tr[0]), int(tr[-1]) + 1)
+    n_st = y.shape[1]
+
+    sums = np.zeros((168, n_st))
+    cnts = np.zeros((168, n_st))
+    h_tr = how[tr]
+    y_tr, m_tr = y[tr], mask[tr] > 0
+    for slot in range(168):
+        sel = h_tr == slot
+        if not sel.any():
+            continue
+        v = np.where(m_tr[sel], y_tr[sel], np.nan)
+        with np.errstate(invalid="ignore"):
+            sums[slot] = np.nansum(v, axis=0)
+        cnts[slot] = m_tr[sel].sum(axis=0)
+    glob = np.nansum(np.where(m_tr, y_tr, np.nan), axis=0) / np.maximum(m_tr.sum(axis=0), 1)
+    means = np.where(cnts > 0, sums / np.maximum(cnts, 1), glob[None, :])
+
+    preds, targets, masks = [], [], []
+    for s in starts:
+        s = int(s)
+        m, e = s + 72, s + 72 + 48
+        slots = how[m:e]
+        col = means[slots]                       # (48, N)
+        preds.append(col)
+        targets.append(y[m:e])
+        masks.append(mask[m:e])
+    return (np.stack(preds), np.stack(targets), np.stack(masks))
+
+
 def ridge_predictions(ds, starts, lag=24, alpha=1.0):
     """Per-station ridge on the last `lag` hourly values, predicting each horizon.
 
@@ -154,9 +236,12 @@ def model_predictions(ds, ckpt_path, starts, device):
     n_stations = ck["n_stations"]
     mname = ck.get("model")
     if mname is None:
-        # filename is "<model>_<graph>_s<seed>.pt"
-        mname = Path(ckpt_path).stem.rsplit("_s", 1)[0]
-        for g in ("distance", "correlation", "wind_aware", "learned_adaptive", "identity"):
+        # filename is "<model>_<graph>_s<seed>[_lso<K>_<mode>].pt"
+        stem = Path(ckpt_path).stem
+        stem = re.sub(r"_lso\d+_\w+$", "", stem)
+        mname = stem.rsplit("_s", 1)[0]
+        for g in ("wind_aware_era5", "wind_aware", "distance", "correlation",
+                  "learned_adaptive", "identity"):
             if mname.endswith("_" + g):
                 mname = mname[: -(len(g) + 1)]
                 break
@@ -168,6 +253,13 @@ def model_predictions(ds, ckpt_path, starts, device):
     y = torch.from_numpy(ds["y_full"])
     mask = torch.from_numpy(ds["mask_y"])
 
+    # ---- leave-station-out: blind the held-out stations' own history -----
+    holdout_ids = list(ck.get("holdout_stations") or [])
+    holdout_mode = ck.get("holdout_mode", "target")
+    sids = [str(s) for s in ds["station_ids"]]
+    holdout_idx = [sids.index(s) for s in holdout_ids if s in sids]
+    blind = bool(holdout_idx) and holdout_mode in ("input", "both")
+
     preds, targets, masks = [], [], []
     with torch.no_grad():
         for s in starts:
@@ -175,6 +267,11 @@ def model_predictions(ds, ckpt_path, starts, device):
             m, e = s + 72, s + 72 + 48
             xb = torch.nan_to_num(X[s:m], nan=0.0)
             mb = mask[s:m]
+            if blind:
+                xb = xb.clone()
+                mb = mb.clone()
+                xb[:, holdout_idx, :] = 0.0
+                mb[:, holdout_idx] = 0.0
             xb = torch.cat([xb, mb.unsqueeze(-1)], dim=-1).unsqueeze(0).to(device)
             out = _to_hn(model(xb), 48, n_stations)
             preds.append(out.cpu().numpy())
@@ -233,6 +330,14 @@ def main():
     p, t, m = persistence_predictions(ds, starts)
     preds["Persistence"] = (p, t, m)
     rows.append(score("Persistence", p, t, m, norm_mean, norm_std))
+
+    p, t, m = seasonal_naive_predictions(ds, starts, period=24)
+    preds["Seasonal naive (24h)"] = (p, t, m)
+    rows.append(score("Seasonal naive (24h)", p, t, m, norm_mean, norm_std))
+
+    p, t, m = hour_of_week_predictions(ds, starts)
+    preds["Hour-of-week average"] = (p, t, m)
+    rows.append(score("Hour-of-week average", p, t, m, norm_mean, norm_std))
 
     p, t, m = ridge_predictions(ds, starts)
     preds["Ridge(24 lags)"] = (p, t, m)

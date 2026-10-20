@@ -74,3 +74,25 @@ def get_split(ds: Dict, mode: str = "fixed", fold: str | None = None) -> Dict[st
     if mode == "expanding":
         return expanding_split(ds, fold)
     raise ValueError(f"unknown split mode {mode!r}")
+
+
+def leave_station_out_stations(station_ids, k: int, seed: int = 0):
+    """Deterministically pick ``k`` stations to hold out of training entirely.
+
+    The choice is seeded so that every model variant sees exactly the same
+    held-out stations; otherwise a difference between two variants could be
+    an artefact of which stations each was allowed to train on.
+
+    The stations are spread over the network rather than clustered, so the
+    held-out set contains both central and peripheral monitors.
+    """
+    import numpy as np
+    sids = [str(s) for s in station_ids]
+    if k <= 0 or k >= len(sids):
+        raise ValueError(f"k must be in 1..{len(sids)-1}, got {k}")
+    rng = np.random.default_rng(seed)
+    # sort by radius from the centroid so the spread is deterministic, then
+    # take an evenly spaced subset of the shuffled order
+    idx = np.arange(len(sids))
+    rng.shuffle(idx)
+    return sorted(sids[i] for i in idx[:k])

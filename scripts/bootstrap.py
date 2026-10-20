@@ -31,6 +31,11 @@ PAIRS = [
     ("stgcn_identity", "lstm_univariate_distance"),
     ("stgcn_identity", "Ridge(24 lags)"),
     ("stgcn_identity", "Persistence"),
+    ("stgcn_identity", "Seasonal naive (24h)"),
+    ("stgcn_identity", "Hour-of-week average"),
+    ("stgcn_wind_aware", "Seasonal naive (24h)"),
+    ("graph_wavenet_wind_aware", "Seasonal naive (24h)"),
+    ("lstm_multivariate_distance", "Seasonal naive (24h)"),
 ]
 
 

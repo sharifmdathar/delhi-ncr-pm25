@@ -196,6 +196,16 @@ def build_graph(graph_type: str,
         if wind_u is None or wind_v is None:
             raise ValueError("wind_u/wind_v required for the wind-aware graph")
         adj = WindAwareGraph(coords, wind_u, wind_v, sigma=kwargs.get("sigma")).get_adjacency()
+    elif graph_type == "wind_aware_era5":
+        # Same construction as wind_aware, but the edge directions come from
+        # ERA5 reanalysis instead of the stations' own anemometers.  The two
+        # sources sit at opposite ends of the trade-off: ERA5 is complete for
+        # every station and spatially smooth (mean cross-station correlation
+        # of the u-component 0.98), while the station wind is missing for 9 of
+        # 42 stations and noisy where present (cross-station correlation 0.11).
+        if wind_u is None or wind_v is None:
+            raise ValueError("wind_u/wind_v required for the ERA5 wind-aware graph")
+        adj = WindAwareGraph(coords, wind_u, wind_v, sigma=kwargs.get("sigma")).get_adjacency()
     elif graph_type == "learned_adaptive":
         # The adjacency is learned inside GraphWaveNet; start from identity.
         adj = np.eye(N)

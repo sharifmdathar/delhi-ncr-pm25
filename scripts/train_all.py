@@ -34,7 +34,7 @@ import torch.nn as nn
 
 from src.data.dataset import load_dataset
 from src.data.graphs import build_graph
-from src.data.splits import get_split
+from src.data.splits import get_split, leave_station_out_stations
 from src.models.lstm import build_lstm_model
 from src.models.transformer import build_transformer_model
 from src.models.stgcn import build_stgcn_model
@@ -85,26 +85,59 @@ def make_graph(ds, graph_type, n_stations):
     pm25_train = denorm_np(ds["y_full"][tr], norm_mean, norm_std)  # (T, N)
 
     wind_u = wind_v = None
-    if graph_type == "wind_aware":
-        # wind_u / wind_v are feature columns 3 and 4 of X_full.
-        # Use nanmean: the raw series has NaN in hours where the station
-        # reported no weather.
-        with np.errstate(invalid="ignore"):
-            wind_u = np.nanmean(ds["X_full"][tr][:, :, 3], axis=0)
-            wind_v = np.nanmean(ds["X_full"][tr][:, :, 4], axis=0)
-        # Replace any all-NaN station with the network mean
-        if np.all(np.isnan(wind_u)):
-            wind_u = np.zeros(n_stations)
+    if graph_type in ("wind_aware", "wind_aware_era5"):
+        if graph_type == "wind_aware_era5":
+            # ERA5 reanalysis wind (complete and smooth) instead of the
+            # stations' own anemometers (noisy, and missing for 9 of 42).
+            wind_u, wind_v = _era5_prevailing_wind(ds, tr)
         else:
-            wind_u = np.where(np.isnan(wind_u), np.nanmean(wind_u), wind_u)
-        if np.all(np.isnan(wind_v)):
-            wind_v = np.zeros(n_stations)
-        else:
-            wind_v = np.where(np.isnan(wind_v), np.nanmean(wind_v), wind_v)
+            # wind_u / wind_v are feature columns 3 and 4 of X_full.
+            # Use nanmean: the raw series has NaN in hours where the station
+            # reported no weather.
+            with np.errstate(invalid="ignore"):
+                wind_u = np.nanmean(ds["X_full"][tr][:, :, 3], axis=0)
+                wind_v = np.nanmean(ds["X_full"][tr][:, :, 4], axis=0)
+            # Replace any all-NaN station with the network mean
+            if np.all(np.isnan(wind_u)):
+                wind_u = np.zeros(n_stations)
+            else:
+                wind_u = np.where(np.isnan(wind_u), np.nanmean(wind_u), wind_u)
+            if np.all(np.isnan(wind_v)):
+                wind_v = np.zeros(n_stations)
+            else:
+                wind_v = np.where(np.isnan(wind_v), np.nanmean(wind_v), wind_v)
 
     adj = build_graph(graph_type, coords, pm25_train=pm25_train,
                       wind_u=wind_u, wind_v=wind_v)
     return torch.from_numpy(adj)
+
+
+def _era5_prevailing_wind(ds, tr):
+    """Train-split prevailing wind from ERA5, per station.
+
+    Returns (u, v) in the same (normalised) units as the station wind
+    features, so the two graph variants differ only in the source of the
+    wind, not in any downstream scaling.
+    """
+    path = PROJECT_ROOT / "data" / "raw" / "era5_wind" / "era5_wind.csv"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} not found. Run: python scripts/fetch_era5_wind.py")
+    import pandas as pd
+    era5 = pd.read_csv(path, parse_dates=["timestamp"])
+    sids = [str(s) for s in ds["station_ids"]]
+    ts = pd.to_datetime(ds["timestamps"], unit="s")
+    window = ts[tr]
+    sub = era5[(era5["station_id"].isin(sids)) &
+               (era5["timestamp"] >= window[0]) &
+               (era5["timestamp"] <= window[-1])]
+    piv_u = sub.pivot_table(index="timestamp", columns="station_id", values="era5_wind_u")
+    piv_v = sub.pivot_table(index="timestamp", columns="station_id", values="era5_wind_v")
+    u = np.array([piv_u[s].mean() if s in piv_u.columns else np.nan for s in sids])
+    v = np.array([piv_v[s].mean() if s in piv_v.columns else np.nan for s in sids])
+    u = np.where(np.isnan(u), np.nanmean(u), u)
+    v = np.where(np.isnan(v), np.nanmean(v), v)
+    return u, v
 
 
 def _to_hn(pred, horizons: int, n_stations: int) -> torch.Tensor:
@@ -152,6 +185,24 @@ def run(model_name, ds, cfg, args, seed, device):
     if model_name in ("stgcn", "graph_wavenet"):
         model.set_adjacency(make_graph(ds, args.graph, n_stations).to(device))
 
+    # ---- leave-station-out ------------------------------------------------
+    # Stations in `holdout_idx` never contribute to the loss, so the model has
+    # never seen their targets.  With mode "both" their own input history is
+    # also zeroed, so the only information available for them is what their
+    # neighbours carry -- which is the situation a graph is supposed to help.
+    holdout_idx = np.array([], dtype=np.int64)
+    holdout_ids = []
+    if args.holdout_k:
+        holdout_ids = leave_station_out_stations(ds["station_ids"], args.holdout_k,
+                                                 args.holdout_seed)
+        sids = [str(s) for s in ds["station_ids"]]
+        holdout_idx = np.array([sids.index(s) for s in holdout_ids], dtype=np.int64)
+        print(f"leave-station-out: {args.holdout_k} stations held out "
+              f"(mode={args.holdout_mode}): {holdout_ids}")
+    train_station_mask = np.ones(n_stations, dtype=bool)
+    train_station_mask[holdout_idx] = False
+    holdout_blind_input = bool(args.holdout_k) and args.holdout_mode in ("input", "both")
+
     n_params = sum(p.numel() for p in model.parameters())
     print(f"[{model_name} seed={seed} graph={args.graph}] params={n_params/1e3:.1f}K")
 
@@ -178,12 +229,22 @@ def run(model_name, ds, cfg, args, seed, device):
             # "was this observed?" signal.
             xb = torch.nan_to_num(xb, nan=0.0)
             yb = torch.nan_to_num(yb, nan=0.0)
+            if holdout_blind_input and len(holdout_idx):
+                # the held-out station's own history is invisible
+                xb = xb.clone()
+                mb = mb.clone()
+                xb[:, holdout_idx, :] = 0.0
+                mb[:, holdout_idx] = 0.0
             xs.append(torch.cat([xb, mb.unsqueeze(-1)], dim=-1))
             ys.append(yb)
             ms.append(ymask)
         xb = torch.stack(xs).to(device)
         yb = torch.stack(ys).to(device)
         ymask = torch.stack(ms).to(device)
+        if len(holdout_idx):
+            # the held-out stations' targets never enter the loss
+            ymask = ymask.clone()
+            ymask[:, :, holdout_idx] = 0.0
         return xb, yb, ymask
 
     @torch.no_grad()
@@ -246,11 +307,15 @@ def run(model_name, ds, cfg, args, seed, device):
             best_epoch = epoch + 1
             patience = 0
             tag = f"{model_name}_{args.graph}_s{seed}" + (f"_{args.fold}" if args.fold else "")
+            if holdout_ids:
+                tag += f"_lso{args.holdout_k}_{args.holdout_mode}"
             torch.save({"state_dict": model.state_dict(),
                         "model": model_name,
                         "config": cfg, "graph": args.graph, "seed": seed,
                         "n_stations": n_stations, "val_mae_ugm3": best,
-                        "epoch": best_epoch},
+                        "epoch": best_epoch,
+                        "holdout_stations": list(holdout_ids),
+                        "holdout_mode": args.holdout_mode},
                        CKPT_DIR / f"{tag}.pt")
         else:
             patience += 1
@@ -261,7 +326,9 @@ def run(model_name, ds, cfg, args, seed, device):
     print(f"  BEST {model_name} seed={seed} graph={args.graph}: "
           f"val MAE={best:.2f} µg/m³ @ epoch {best_epoch}")
     return {"model": model_name, "graph": args.graph, "seed": seed,
-            "val_mae_ugm3": best, "epoch": best_epoch, "params": n_params}
+            "val_mae_ugm3": best, "epoch": best_epoch, "params": n_params,
+            "holdout_stations": list(holdout_ids),
+            "holdout_mode": args.holdout_mode}
 
 
 def main():
@@ -270,7 +337,7 @@ def main():
                     default=["lstm_univariate", "lstm_multivariate",
                              "transformer", "stgcn", "graph_wavenet"])
     ap.add_argument("--graph", default="distance",
-                    choices=["distance", "correlation", "wind_aware",
+                    choices=["distance", "correlation", "wind_aware", "wind_aware_era5",
                              "learned_adaptive", "identity"])
     ap.add_argument("--seeds", nargs="+", type=int, default=[42])
     ap.add_argument("--epochs", type=int, default=30)
@@ -278,6 +345,16 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--patience", type=int, default=8)
     ap.add_argument("--val_windows", type=int, default=400)
+    ap.add_argument("--holdout_k", type=int, default=0,
+                    help="leave-station-out: number of stations whose targets are "
+                         "held out of training entirely (0 = off)")
+    ap.add_argument("--holdout_seed", type=int, default=0,
+                    help="seed for the leave-station-out station selection")
+    ap.add_argument("--holdout_mode", default="target",
+                    choices=["target", "input", "both"],
+                    help="target: the station's targets are held out but its own "
+                         "history is visible; input: its history is also hidden; "
+                         "both: targets and history hidden")
     ap.add_argument("--split_mode", default="fixed", choices=["fixed", "expanding"])
     ap.add_argument("--fold", default=None, help="fold name for expanding mode")
     ap.add_argument("--out", default="outputs/train_log.json")

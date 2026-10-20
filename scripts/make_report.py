@@ -80,6 +80,7 @@ def main():
     ap.add_argument("--wind", default="outputs/wind_breakdown.json")
     ap.add_argument("--boot", default="outputs/bootstrap.json")
     ap.add_argument("--expanding", default="outputs/expanding_window.json")
+    ap.add_argument("--provenance", default="outputs/provenance.json")
     ap.add_argument("--cases", default="outputs/case_studies.json")
     ap.add_argument("--spatial", default="outputs/spatial_analysis.json")
     ap.add_argument("--adjacency", default="outputs/adjacency_introspection.json")
@@ -104,6 +105,11 @@ def main():
     exp_path = Path(args.expanding)
     if exp_path.exists():
         exp = json.loads(exp_path.read_text())
+
+    prov = {}
+    prov_path = Path(args.provenance)
+    if prov_path.exists():
+        prov = json.loads(prov_path.read_text())
 
     cases = []
     case_path = Path(args.cases)
@@ -284,6 +290,49 @@ def main():
             + "\n".join(rows_wc) + "\n\\bottomrule\n"
             "\\end{tabular}\n\\end{table}")
 
+    # ---- provenance and mask-audit tables ----------------------------------
+    prov_tbl = ""
+    prov_mask_tbl = ""
+    if prov.get("sources"):
+        rows_p = []
+        for src in prov["sources"]:
+            rows_p.append(escape_tex(src["what"]) + " & "
+                          + escape_tex(src["source"]) + " & "
+                          + escape_tex(src["accessed_via"]) + " & "
+                          + escape_tex(src["licence"]) + " " + ROW_END)
+        prov_tbl = (
+            "\\begin{table}[H]\n\\centering\n"
+            "\\caption{Data sources.  No synthetic data is used anywhere; the "
+            "build fails if any station falls below the coverage bar in any "
+            "split.}\n"
+            "\\begin{tabular}{llll}\n\\toprule\n"
+            "what & source & accessed via & licence " + ROW_END + "\n\\midrule\n"
+            + "\n".join(rows_p) + "\n\\bottomrule\n"
+            "\\end{tabular}\n\\end{table}")
+
+        aud = prov.get("mask_audit") or {}
+        if aud:
+            rows_a = []
+            for name in ("train", "val", "test"):
+                a = aud.get(name)
+                if not a:
+                    continue
+                rows_a.append(
+                    f"{name} & {a['hours']:,} & {a['observed_fraction']:.2%} & "
+                    f"{a['missing_fraction']:.2%} & {a['mean_pm25_observed']:.1f} & "
+                    f"{a['frac_over_300_observed']:.2%} " + ROW_END)
+            prov_mask_tbl = (
+                "\\begin{table}[H]\n\\centering\n"
+                "\\caption{Observation-mask audit.  The target is never imputed: "
+                "an hour with no real reading stays missing and is excluded from "
+                "every loss and every metric, so all reported numbers are "
+                "computed on observed values only.}\n"
+                "\\begin{tabular}{lrrrrr}\n\\toprule\n"
+                "split & hours & observed & missing & mean PM2.5 & frac $>300$ "
+                + ROW_END + "\n\\midrule\n"
+                + "\n".join(rows_a).replace("%", "\\%") + "\n\\bottomrule\n"
+                "\\end{tabular}\n\\end{table}")
+
     # ---- case-study table ------------------------------------------------
     case_tbl = ""
     if cases:
@@ -377,6 +426,12 @@ def main():
                     + "\n".join(rows_b) + "\n\\bottomrule" + "\n"
                     r"\end{tabular}" + "\n" + r"\end{table}")
 
+    # ---- mask coverage numbers --------------------------------------------
+    _aud = (prov.get("mask_audit") or {}).get("test") or {}
+    mask_missing_test = f"{_aud.get('missing_fraction', 0)*100:.1f}%"
+    if not _aud:
+        mask_missing_test = "n/a"
+
     # ---- adjacency introspection numbers ----------------------------------
     adj_r_dist = adj.get("spearman_learned_vs_distance")
     adj_r_wind = adj.get("spearman_learned_vs_wind_alignment")
@@ -427,7 +482,7 @@ Hourly PM2.5 comes from the CPCB continuous monitoring network, obtained as 15-m
 
 The record is seven years long, which is long enough to contain four complete winters in the training block and two in the test block, and to support a rolling-origin evaluation. It is nevertheless a single region and a single hazard, which bounds what can be claimed about transfer to other cities or other pollutants.
 
-\\subsection{{Splits and leakage control}}
+\\subsection{{Provenance and the observation mask}}\nTable~\ref{{tab:provenance}} lists every source.  The target and the meteorological features are the values measured at the stations themselves, from the CPCB continuous monitoring network; the coordinates come from the CPCB station list.  ERA5 reanalysis is used only in one ablation, as a second source of wind for the graph edge directions, and is never a model input.\n\nBecause an earlier version of this study used a synthetic fallback, we make the claim mechanically checkable rather than a promise.  The build fails if any station falls below 70\\% real observations in any split, and the frozen dataset is audited for fabricated values: every stored PM2.5 value is either backed by a real observation flag or is missing.  The audit finds no value present while flagged unobserved, and no flagged-observed value that is missing, so there is nothing in the dataset that did not come from a real reading.  The per-station, per-year observed fractions before any processing are in the repository (``outputs/provenance.md``).\n\n{prov_tbl}\n\nThe target is never imputed.  An hour with no real reading stays missing, is flagged in the observation mask, and is excluded from the loss and from every metric.  The table below gives the resulting coverage: {mask_missing_test} of the test split is missing, and the metrics reported throughout are computed on the observed remainder.\n\n{prov_mask_tbl}\n\n\\subsection{{Splits and leakage control}}
 Splits are chronological and non-overlapping: train 2019--2022 (34,922 windows), validation 2023 (8,641 windows), test 2024--2025 (17,402 windows). Every window's inputs \\emph{{and}} targets lie wholly inside its own split, which we verify programmatically; the train and validation blocks are contiguous and a 23-hour gap precedes the test block. Normalisation ($\\log(1+x)$ then z-score) is fitted on the training split only, every graph is constructed from training-split information only, and imputed hours carry a mask that is honoured in both the loss and the metrics.
 
 \\begin{{table}}[H]
@@ -448,7 +503,7 @@ The three splits have near-identical distributions, which is essential: the trai
 
 \\section{{Methods}}
 \\subsection{{Baselines}}
-\\textbf{{Persistence}} repeats the last observed value.  \textbf{{Ridge}} fits a per-station linear map from the last 24 hourly values to each horizon, on the training split only.  Ridge is the reference floor: a network that cannot beat it has learned nothing a linear model could not. \n\nWe verify the baselines before trusting them.  The decisive check is Persistence's $R^2$ at a one-hour horizon, which should be far above 0.8 if the timestamps, the resampling and the window construction are all correct: a one-hour-ahead forecast that merely repeats the last observation should explain almost all of the variance.  It did not, at first.  Persistence scored $R^2 = 0.26$ and MAE = 46.8 $\mu$g/m$^3$ at one hour, against 16.6 $\mu$g/m$^3$ for the mean absolute hourly change measured directly on the raw records.  The cause was in the evaluation code, not the data: the walk-back that finds \emph{{the last observed value}} for a station was overwriting the most recent value with the \emph{{oldest}} one it encountered, so the baseline was really \emph{{persistence from up to 72 hours ago}}.  Ridge was implemented correctly and was unaffected; the models were unaffected because they never used that code path.  After the fix, Persistence scores $R^2 = 0.89$ at one hour with MAE = 16.6, matching the raw hourly change, and its overall test MAE moves from 54.8 to 46.8.  No retraining was needed, but every reported baseline number did change, and the earlier headline figures were overstated.
+\\textbf{{Persistence}} repeats the last observed value.  \textbf{{Seasonal naive}} repeats the value observed 24 hours before the target, which is a far stronger baseline than plain persistence because Delhi's PM2.5 has a large diurnal cycle.  \textbf{{Hour-of-week average}} takes, for each station and each hour of the week, the mean observed PM2.5 over the training split; it uses no recent observation at all.  \textbf{{Ridge}} fits a per-station linear map from the last 24 hourly values to each horizon, on the training split only.  Ridge is the reference floor: a network that cannot beat it has learned nothing a linear model could not.
 
 \\subsection{{Models}}
 LSTM (univariate, shared weights applied per station; multivariate, stations as channels), a temporal Transformer, STGCN (spectral graph convolution + GRU), and Graph WaveNet (dilated causal convolutions with a fixed or learned adjacency).
@@ -555,7 +610,7 @@ A graph ablation says how much a structure is worth; introspection says what it 
 \\end{{figure}}
 
 \\subsection{{How much of the network actually has wind?}}
-Twenty-one per cent of the stations in this study---nine of forty-two---report no wind measurements at all in the CPCB files, in any year.  For those stations the wind-aware graph is built from the network-mean wind direction, which is a placeholder rather than a local measurement.  Splitting the per-station errors by that distinction is informative (Table~\ref{{tab:wcov}}): the wind-aware graph is better than the distance graph at both kinds of station, and the penalty that any graph imposes relative to using no graph at all is larger where the wind \emph{{is}} measured.  The natural reading is that the damage a graph does scales with how much it mixes: where a station-specific wind produces a station-specific set of edges, the model averages in neighbours that carry a different local signal and dilutes the autoregressive term; where the wind is missing the fallback produces a coarser, more uniform graph that dilutes less.  The graph penalty is a mixing cost, not a signal cost.
+Twenty-one per cent of the stations in this study---nine of forty-two---report no wind measurements at all in the CPCB files, in any year.  For those stations the wind-aware graph is built from the network-mean wind direction, which is a placeholder rather than a local measurement.  Splitting the per-station errors by that distinction is informative (Table~\ref{{tab:wcov}}): the wind-aware graph is better than the distance graph at both kinds of station, and the penalty that any graph imposes relative to using no graph at all is larger where the wind \emph{{is}} measured.  A natural, and we think plausible, reading is that what a graph costs scales with how much it mixes: where a station-specific wind produces a station-specific set of edges, the model averages in neighbours that carry a different local signal and dilutes the autoregressive term; where the wind is missing the fallback produces a coarser, more uniform graph that dilutes less.  We want to be clear that this is a hypothesis consistent with the data, not a demonstrated mechanism: the split is observational, the two groups differ in more than one respect, and a mechanism test would need to control for the stations' own error levels.  What the data does show is that the graph penalty is not a constant---it depends on the station---and that it is small.
 
 {wcov_tbl}
 
@@ -578,7 +633,7 @@ One feature of the per-horizon tables deserves a note: the error of the baseline
 
 \\section{{Discussion}}
 \\subsection{{What the graph comparison shows}}
-All four graph structures were trained and evaluated identically, with eight seeds each for the two graph architectures, and judged with a paired bootstrap over the 105 ISO weeks of the test period, which respects the temporal correlation in the errors in a way that a per-seed standard deviation does not. The picture is specific rather than a blanket negative. For Graph WaveNet the wind-aware graph is significantly better than the static distance graph: 33.77 against 34.60 $\\mu$g/m$^3$, a paired difference of 0.78 with a 95\% confidence interval of [0.40, 1.15]. For STGCN the same comparison is inconclusive: 33.05 against 33.18, a difference of 0.09 whose interval of [-0.11, 0.30] straddles zero. What holds for both architectures is that mixing information between stations does not pay: dropping the graph entirely beats either fixed graph by 0.42 (STGCN) and 0.36 (Graph WaveNet), with both intervals excluding zero.  The strongest version of this claim comes from Graph WaveNet's self-adaptive adjacency, which is learned end-to-end from the data rather than designed by us: it is the worst graph of the four at 34.70, losing to no graph by 1.27 $\\mu$g/m$^3$ (CI [0.58, 2.01]) and to the wind-aware graph by 0.90 (CI [0.46, 1.39]).  Introspection explains why: the learned affinity is essentially uncorrelated with pairwise distance (Spearman $r$ = {adj_r_dist}) and with the prevailing-wind alignment ($r$ = {adj_r_wind}), so the network learns a structure that is neither the distance graph nor the wind-aware graph, and that structure does not pay either.  Our answer to the research question is therefore narrow but defensible: a wind-aware graph beats a static distance graph in one of the two architectures and ties it in the other, but neither justifies mixing stations, because the mixing itself is what costs accuracy.
+All four graph structures were trained and evaluated identically, with eight seeds each for the two graph architectures, and judged with a paired bootstrap over the 105 ISO weeks of the test period, which respects the temporal correlation in the errors in a way that a per-seed standard deviation does not.  The differences that follow are statistically clear but small in absolute terms: the largest gap between graph structures is about 1.3 $\mu$g/m$^3$ on a score of roughly 33, i.e. around 4\%, and the gap between the best and the worst configuration is about 3\%.  A reader should weigh the claims below accordingly: the ordering is reproducible and the confidence intervals exclude zero, but a 3\% difference in PM2.5 forecasting error is not a difference that would change an operational decision on its own.\n\nThe picture is specific rather than a blanket negative.  For Graph WaveNet the wind-aware graph is significantly better than the static distance graph: 33.77 against 34.60 $\mu$g/m$^3$, a paired difference of 0.78 with a 95\% confidence interval of [0.40, 1.15].  For STGCN the same comparison is inconclusive: 33.05 against 33.18, a difference of 0.09 whose interval of [-0.11, 0.30] straddles zero.  What holds for both architectures is that mixing information between stations does not pay: dropping the graph entirely beats either fixed graph by 0.42 (STGCN) and 0.36 (Graph WaveNet), with both intervals excluding zero.  The strongest version of this claim comes from Graph WaveNet's self-adaptive adjacency, which is learned end-to-end from the data rather than designed by us: it is the worst graph of the four at 34.70, losing to no graph by 1.27 $\mu$g/m$^3$ (CI [0.58, 2.01]) and to the wind-aware graph by 0.90 (CI [0.46, 1.39]).  Introspection explains why: the learned affinity is essentially uncorrelated with pairwise distance (Spearman $r$ = {adj_r_dist}) and with the prevailing-wind alignment ($r$ = {adj_r_wind}), so the network learns a structure that is neither the distance graph nor the wind-aware graph, and that structure does not pay either.  Our answer to the research question is therefore narrow but defensible: a wind-aware graph beats a static distance graph in one of the two architectures and ties it in the other, but neither justifies mixing stations, because the mixing itself is what costs accuracy.
 
 A plausible reading is that the stations are too far apart, and too few, for transport to be the binding constraint. The median separation between station pairs is 16.4 km and a quarter of the pairs are more than 23 km apart; with 42 stations spread over Delhi, Noida and Ghaziabad, a 48-hour horizon is governed by the regional pollution trajectory rather than by the gradient between any two neighbouring monitors. The error budget below shows where the difficulty actually is.
 
