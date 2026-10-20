@@ -195,8 +195,12 @@ of `wind_u` is 0.11; no two stations ever record the same wind in the same
 hour) — but **9 of the 42 stations report no wind at all**, in any year.  For
 those stations the wind-aware graph falls back to the network-mean wind
 direction.  `scripts/wind_coverage_analysis.py` shows that the penalty any
-graph imposes is *larger* at the stations that do have wind: the damage a
-graph does scales with how much it mixes.
+graph imposes is *larger* at the stations that do have wind.  A natural
+reading — and we want to be clear this is a **hypothesis consistent with the
+data, not a demonstrated mechanism** — is that what a graph costs scales with
+how much it mixes: a station-specific wind produces station-specific edges
+that pull in neighbours carrying a different local signal, while the fallback
+produces a coarser, more uniform graph that dilutes less.
 
 ---
 
@@ -205,6 +209,8 @@ graph does scales with how much it mixes.
 | Model | Description | Key config |
 |-------|-------------|------------|
 | Persistence | ŷ = y(t−1) | baseline |
+| Seasonal naive (24 h) | ŷ = y(t−24) | baseline — much stronger than persistence at 24 h and 48 h |
+| Hour-of-week average | per-station mean PM2.5 for each hour of the week, train split only | baseline / climatological floor |
 | Ridge (24 lags) | per-station linear map, last 24 h → 48 horizons | baseline / linear floor |
 | LSTM Univariate | shared-weight LSTM applied per station | hidden=64, layers=2, dropout=0.3 |
 | LSTM Multivariate | single LSTM, all stations as channels | hidden=64, layers=2 |
@@ -216,6 +222,21 @@ All models predict the **change from the last observed value** and carry a
 **linear autoregressive skip**, so each starts at Persistence and is measured
 relative to ridge. See `src/models/base.py`.
 
+**Seasonal naive is the bar that matters at long horizons.** Delhi's PM2.5 has
+a 51 µg/m³ diurnal cycle, so the value 24 hours earlier is far more
+informative than the value 1 hour earlier:
+
+| baseline | 1h | 24h | 48h | overall |
+|---|---|---|---|---|
+| Persistence | 16.55 | 38.41 | 44.74 | 46.79 |
+| **Seasonal naive (24 h)** | 38.86 | 38.41 | **38.60** | **38.63** |
+| Hour-of-week average | 60.15 | 59.71 | 59.86 | 59.86 |
+| Ridge (24 lags) | 15.83 | **36.45** | 42.34 | 44.03 |
+
+The best neural model beats seasonal naive by 6.04 µg/m³ overall (paired
+bootstrap CI [4.83, 7.38]), but the LSTM Multivariate does **not** beat it
+reliably (−0.59, CI [−2.58, 1.69]) — a result worth stating plainly.
+
 ### Sanity checks that were run, and what they caught
 
 | check | expected | result |
@@ -226,17 +247,82 @@ relative to ridge. See `src/models/base.py`.
 | Every window's inputs *and* targets inside its own split | yes | verified programmatically |
 | Split distributions matched across train/val/test | yes | 102.0 / 98.0 / 97.5 µg/m³ |
 
-The persistence R² check caught a real bug: the walk-back that finds "the last
-observed value" was overwriting the most recent value with the *oldest* one in
-the 72-hour window, so the baseline was really "persistence from up to 72 hours
-ago" and scored 46.83 MAE at 1h instead of 16.55. Ridge was implemented
-correctly and was unaffected. The models were unaffected too, so no retraining
-was needed; only the reported baseline numbers changed.
+### The persistence bug, and how it was caught
 
-The per-horizon persistence curve is **not** monotonic (12 h is worse than
-24 h) and this is a property of the data, not an artefact: Delhi's PM2.5 has a
-51 µg/m³ diurnal cycle, so a 12-hour horizon lands on the opposite phase of
-that cycle while a 24-hour horizon returns to the same one.
+This is worth telling because it is the kind of thing an interviewer's
+question tends to be about.
+
+The alignment check in the table above is: *persistence's R² at a one-hour
+horizon should be well above 0.8*, because a one-hour-ahead forecast that
+merely repeats the last observation should explain almost all of the
+variance. **It came out at 0.259.** Persistence was scoring MAE 46.6 µg/m³ at
+one hour, while the mean absolute hourly change measured directly on the raw
+CPCB records was 16.6.
+
+The data was fine. The dataset's own `mean |y[t+1] − y[t]|` is 16.95, matching
+the raw records (16.98), and the frozen hourly series aligns with a direct
+resample of the raw 15-minute files at lag 0 (mean abs difference 8.59,
+against 13.14 at lag +1 and 21.56 at lag −1).
+
+The bug was in `scripts/evaluate.py::persistence_predictions`. The walk-back
+that finds "the last observed value" for each station looked like this:
+
+```python
+last = y[m - 1]
+for back in range(0, 72):
+    cand = y[m - 1 - back]
+    obs  = mask[m - 1 - back]
+    last = np.where(obs > 0, cand, last)   # overwrites with OLDER values
+```
+
+Every observed hour in the window overwrote the previous one, so the value
+that survived was the *oldest* one — the baseline was really "persistence from
+up to 72 hours ago". That also explained the nonsensical non-monotonic
+horizon curve.
+
+The fix is to fill each station only once, scanning backwards, so the most
+recent observation wins. Ridge was implemented correctly and was unaffected;
+the models never took that code path, so **no retraining was needed** — but
+every reported baseline number changed, and the earlier headline figures were
+overstated. After the fix, persistence scores R² 0.889 and MAE 16.3 at one
+hour, and 46.79 overall (was 54.83).
+
+The lesson we took: a sanity check with a *predicted* value is worth more
+than a sanity check with a computed one. We now run the set in the table
+above, and `scripts/provenance.py` audits the frozen dataset for any value
+that is not backed by a real observation.
+
+### The per-horizon curve is not monotonic, and that is the data
+
+Persistence's error is worse at 12 h than at 24 h. This is a property of
+Delhi's PM2.5, not an artefact: the network-mean PM2.5 has a 51 µg/m³
+diurnal cycle (peak 117.8 µg/m³ at 05:00, trough 66.4 µg/m³ at 22:00), so a
+12-hour horizon lands on the opposite phase of that cycle while a 24-hour
+horizon returns to the same one. The raw records show the same pattern (mean
+|12 h diff| 50.30 against mean |24 h diff| 39.54).
+
+---
+
+## Data provenance
+
+Full detail in [`DATA_CARD.md`](DATA_CARD.md); the machine-checked audit is
+regenerated by `scripts/provenance.py` into `outputs/provenance.md`.
+
+| what | source | accessed via | licence |
+|---|---|---|---|
+| hourly PM2.5 + station meteorology | CPCB continuous monitoring, 15-min | `Vonter/india-cpcb-aqi` release archive | ODbL |
+| ERA5 reanalysis wind (one ablation) | ERA5 via Open-Meteo | `archive-api.open-meteo.com` | Copernicus |
+| station metadata | CPCB station list, XKDR registry | committed in `data/raw/*.csv` | public |
+
+**No raw data is committed.** The CPCB records are ODbL and the ERA5 files are
+under the Copernicus licence; the fetch scripts regenerate them (no API keys
+needed) and only the small public station-metadata tables are in the repo.
+
+**No synthetic values, and that is checked mechanically.** The build fails if
+any station falls below 70% real-observation coverage in any split, the target
+is never imputed, and the audit reports zero values present while flagged
+unobserved. The target's observed coverage is 90.80% (train), 92.32% (val) and
+93.52% (test); every metric is computed on the observed remainder only.
 
 ---
 
@@ -247,6 +333,7 @@ that cycle while a 24-hour horizon returns to the same one.
 | Distance | Gaussian kernel exp(−d²/2σ²) on haversine distance, σ = 5 km |
 | Correlation | pairwise-complete Pearson correlation of PM2.5 (train only), thresholded |
 | Wind-aware | directed edge i→j only when the prevailing wind at i points at j: exp(−d²/2σ²)·max(0, cos(θ_ij − φ_i)) |
+| Wind-aware (ERA5) | the same construction, but the edge directions come from ERA5 instead of the stations' anemometers — an ablation on the *source* of the wind |
 | Learned adaptive | softmax(relu(E₁E₂ᵀ)), learned in-model |
 | None (identity) | ablation baseline |
 
