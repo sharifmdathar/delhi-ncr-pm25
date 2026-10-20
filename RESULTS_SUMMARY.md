@@ -31,6 +31,7 @@ comparison is meaningful rather than a broken-model artefact.
 | GraphWaveNet, wind-aware | 33.77 ± 0.24 | 59.42 | 0.597 | 15.56 | 24.16 | 28.70 | 31.62 | 33.72 | 37.65 |
 | GraphWaveNet, distance | 34.60 ± 0.61 | 59.96 | 0.590 | 15.67 | 23.97 | 28.74 | 32.25 | 34.55 | 38.48 |
 | GraphWaveNet, correlation | 35.43 ± 1.11 | 59.23 | 0.600 | 15.96 | 25.94 | 32.20 | 32.13 | 34.62 | 37.88 |
+| GraphWaveNet, learned adaptive | 34.70 ± 0.47 | 59.51 | 0.596 | 16.08 | 24.92 | 29.65 | 32.13 | 34.74 | 37.65 |
 | LSTM Multivariate | 38.20 ± 1.83 | 66.94 | 0.489 | 16.27 | 25.29 | 30.90 | 35.06 | 37.56 | 41.66 |
 | Transformer | 38.88 ± 1.04 | 66.34 | 0.498 | 16.38 | 26.32 | 31.53 | 34.21 | 38.16 | 42.41 |
 | Ridge (24 lags) | 44.03 | 73.69 | 0.380 | 15.83 | 28.09 | 39.46 | 47.14 | 36.45 | 42.34 |
@@ -44,6 +45,7 @@ comparison is meaningful rather than a broken-model artefact.
 | Wind-aware (directed) | 33.05 ± 0.12 | 33.77 ± 0.24 |
 | Distance (static) | 33.18 ± 0.15 | 34.60 ± 0.61 |
 | Correlation (static) | 33.46 ± 0.43 | 35.43 ± 1.11 |
+| Learned adaptive | - | 34.70 ± 0.47 |
 
 A per-seed standard deviation cannot resolve differences this small, so the
 comparison is made with a **paired bootstrap over the 105 ISO weeks of the test
@@ -58,9 +60,11 @@ temporal correlation in the errors.
 | GraphWaveNet, distance vs GraphWaveNet, wind-aware | +0.78 | [0.40, 1.15] | 0.000 | second is better |
 | GraphWaveNet, distance vs GraphWaveNet, no graph | +1.14 | [0.56, 1.75] | 0.000 | second is better |
 | GraphWaveNet, wind-aware vs GraphWaveNet, no graph | +0.36 | [0.01, 0.75] | 0.023 | second is better |
-| STGCN, no graph vs LSTM Univariate | -0.21 | [-0.36, -0.08] | 1.000 | first is better |
-| STGCN, no graph vs Ridge (24 lags) | -11.27 | [-13.01, -9.66] | 1.000 | first is better |
-| STGCN, no graph vs Persistence | -22.21 | [-25.73, -19.02] | 1.000 | first is better |
+| GraphWaveNet, learned adaptive vs GraphWaveNet, no graph | +1.27 | [0.58, 2.01] | 0.000 | second is better |
+| GraphWaveNet, learned adaptive vs GraphWaveNet, wind-aware | +0.90 | [0.46, 1.39] | 0.000 | second is better |
+| STGCN, no graph vs LSTM Univariate | -0.21 | [-0.36, -0.08] | 0.999 | first is better |
+| STGCN, no graph vs Ridge (24 lags) | -11.27 | [-13.02, -9.65] | 1.000 | first is better |
+| STGCN, no graph vs Persistence | -22.21 | [-25.69, -18.98] | 1.000 | first is better |
 
 ### Where the graph penalty is actually paid: severe episodes
 

@@ -20,6 +20,7 @@ DISPLAY = {
     "graph_wavenet_wind_aware": "GraphWaveNet, wind-aware",
     "graph_wavenet_distance": "GraphWaveNet, distance",
     "graph_wavenet_correlation": "GraphWaveNet, correlation",
+    "graph_wavenet_learned_adaptive": "GraphWaveNet, learned adaptive",
     "lstm_multivariate_distance": "LSTM Multivariate",
     "transformer_distance": "Transformer",
     "Ridge(24 lags)": "Ridge (24 lags)",
@@ -63,7 +64,8 @@ def main():
     for label, sk, wk in [("**None (identity)**", "stgcn_identity", "graph_wavenet_identity"),
                           ("Wind-aware (directed)", "stgcn_wind_aware", "graph_wavenet_wind_aware"),
                           ("Distance (static)", "stgcn_distance", "graph_wavenet_distance"),
-                          ("Correlation (static)", "stgcn_correlation", "graph_wavenet_correlation")]:
+                          ("Correlation (static)", "stgcn_correlation", "graph_wavenet_correlation"),
+                          ("Learned adaptive", "stgcn_learned_adaptive", "graph_wavenet_learned_adaptive")]:
         cells = []
         for k in (sk, wk):
             if k not in by:

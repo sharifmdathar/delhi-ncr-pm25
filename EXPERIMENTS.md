@@ -771,3 +771,104 @@ builds cleanly at 7 pages.
 `outputs/window_week.npy` unconditionally, so a rolling-origin fold evaluation
 overwrote the canonical fixed-split artefacts and the bootstrap then read the
 wrong data. Now the fold writes to `outputs/fold_<fold>/`.
+
+---
+
+## 2026-10-20 (night) - REPORT COMPLETION AND NEW ANALYSES
+
+### Learned adaptive adjacency added to the ablation
+The fourth graph type from the AGENTS.md spec (Graph WaveNet's self-adaptive
+adjacency `softmax(relu(E1 E2^T))`) had never been trained.  Three seeds
+(42, 123, 456), 6 epochs, patience 3, identical to the other GraphWaveNet runs.
+
+| config | mean MAE | sd |
+|--------|----------|-----|
+| graph_wavenet_learned_adaptive | 34.70 | 0.47 |
+
+Paired bootstrap: learned adaptive vs no graph  **+1.27** CI [0.58, 2.01];
+learned adaptive vs wind-aware  **+0.90** CI [0.46, 1.39].  The learned
+adjacency is the WORST of the four graph types.  This is the strongest form of
+the paper's claim: it is not only that hand-designed graph structure fails to
+help -- a graph learned end-to-end from the data fails too.
+
+### Adjacency introspection
+`scripts/adjacency_introspection.py` extracts the learned adjacency and
+compares it with geography and with the wind alignment it was never shown.
+
+| structure | Spearman(weight, distance) | Spearman(weight, wind alignment) |
+|-----------|---------------------------|----------------------------------|
+| distance kernel | -0.996 (by construction) | +0.022 |
+| wind-aware | -0.297 | +0.172 |
+| **learned adaptive** | **+0.094** | **+0.021** |
+
+The learned affinity is essentially uncorrelated with both.  The network learns
+a structure that is neither the distance graph nor the wind-aware graph, and
+that structure does not pay either.
+
+### Spatial analysis (mechanism claim)
+`scripts/spatial_analysis.py`: does the graph help the periphery more?
+
+| model | wind penalty near / far | distance penalty near / far | corr(radius, penalty) |
+|-------|-------------------------|-----------------------------|------------------------|
+| STGCN | +0.13 / +0.62 | +0.35 / +0.72 | +0.42 (wind), +0.34 (dist) |
+| GraphWaveNet | +0.20 / +0.33 | +1.23 / +1.06 | +0.31 (wind), +0.11 (dist) |
+
+The opposite of the expected mechanism: the graph penalty GROWS with distance
+from the network centroid.  Peripheral stations, which have the most
+distinctive local behaviour, are the ones that lose the most from mixing.
+
+### Wind coverage -- a real defect found and quantified
+Nine of the 42 stations (site_103, 105, 106, 107, 108, 109, 111, 117, 5024 --
+the IMD stations) report **no wind at all**, in any year of the record.  For
+those stations the wind-aware graph falls back to the network-mean wind
+direction.
+
+Found while writing the adjacency introspection: `WindAwareGraph` propagates
+NaN when the prevailing wind is undefined (369 of 1722 off-diagonal entries
+would be NaN).  The training path sanitises this
+(`scripts/train_all.py`: `wind_u = np.where(np.isnan(wind_u), np.nanmean(wind_u), wind_u)`),
+so the trained models are unaffected -- but the graph builder itself should
+not be relied upon to sanitise.
+
+`scripts/wind_coverage_analysis.py` splits the per-station errors by whether
+the station has a measured wind:
+
+| subset | STGCN wind penalty | STGCN dist penalty | GWN wind penalty | GWN dist penalty |
+|--------|--------------------|--------------------|------------------|------------------|
+| has wind (33) | +0.588 | +0.689 | +0.443 | +1.266 |
+| no wind (9) | -0.389 | -0.039 | -0.381 | +0.699 |
+
+The penalty any graph imposes is LARGER where the wind is actually measured.
+The damage a graph does scales with how much it mixes: a station-specific wind
+produces station-specific edges that pull in genuinely different neighbours
+and dilute the autoregressive term; the fallback produces a coarser, more
+uniform graph that dilutes less.  The graph penalty is a mixing cost, not a
+signal cost.
+
+### Case studies
+`scripts/case_studies.py` -- three events chosen by construction (Diwali
+dates, the January maximum, the strongest May dust episode), not by
+inspecting model wins.
+
+| event | peak | persistence | ridge | no graph | STGCN wind | GWN wind |
+|-------|------|-----------|-------|----------|------------|----------|
+| Diwali 2024-10-30 | 221 | 70.8 | **59.5** | 65.9 | 81.7 | 92.3 |
+| Winter inversion 2024-01-13 | 575 | 59.9 | 86.3 | **20.1** | **20.0** | 27.2 |
+| Dust 2024-05-10 | 162 | 24.1 | 15.6 | 17.8 | 15.5 | **14.5** |
+
+Diwali is the honest failure case: a sharp anthropogenic spike with no
+precursor in the inputs, where the neural models smooth over it and lose to
+ridge.
+
+### Report completion
+Added the sections the report was still missing, per the AGENTS.md spec:
+Related work, Case studies, Spatial error, How much of the network actually
+has wind?, Adjacency introspection, Failure analysis.  10 tables, 4 figures,
+11 pages, compiles cleanly with zero LaTeX errors.
+
+`scripts/make_report.py` now probes for optional LaTeX packages (booktabs,
+float, caption, hyperref) with kpsewhich and degrades gracefully, so the
+report builds on a bare TeX Live.  Fixed along the way: LaTeX escapes inside
+non-raw Python strings (`\toprule` was a TAB, `\bottomrule` a backspace),
+single-backslash table row terminators, unescaped underscores in table cells,
+and the f-string brace doubling for `\emph{...}`.

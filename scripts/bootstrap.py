@@ -26,6 +26,8 @@ PAIRS = [
     ("graph_wavenet_distance", "graph_wavenet_wind_aware"),
     ("graph_wavenet_distance", "graph_wavenet_identity"),
     ("graph_wavenet_wind_aware", "graph_wavenet_identity"),
+    ("graph_wavenet_learned_adaptive", "graph_wavenet_identity"),
+    ("graph_wavenet_learned_adaptive", "graph_wavenet_wind_aware"),
     ("stgcn_identity", "lstm_univariate_distance"),
     ("stgcn_identity", "Ridge(24 lags)"),
     ("stgcn_identity", "Persistence"),

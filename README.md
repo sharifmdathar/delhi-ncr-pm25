@@ -7,7 +7,9 @@ beat a static distance graph for Graph WaveNet (33.77 vs 34.60 µg/m³, paired
 difference 0.78, 95% CI [0.40, 1.15] by bootstrap over 105 test weeks), but is
 indistinguishable from it for STGCN (33.05 vs 33.18, CI [−0.11, 0.30]). More
 importantly, **no graph at all beats both** in both architectures
-(0.36–0.51 µg/m³, both CIs excluding zero). The wind-aware edge over the
+(0.36–0.51 µg/m³, both CIs excluding zero) — and so does Graph WaveNet's
+*learned* adaptive adjacency, which is the worst graph of the four
+(+1.27 µg/m³ vs no graph, CI [0.58, 2.01]). The wind-aware edge over the
 distance graph is concentrated in severe-episode windows (1.22 µg/m³ during
 episodes against 0.23 outside) — but the same cut shows that *all* spatial
 mixing is a net loss: no-graph is best during episodes too, where the graph
@@ -42,6 +44,7 @@ baselines, so the comparison is meaningful rather than a broken-model artefact.
 | Wind-aware (directed) | 33.05 ± 0.12 | 33.77 ± 0.24 |
 | Distance (static) | 33.18 ± 0.15 | 34.60 ± 0.61 |
 | Correlation (static) | 33.46 ± 0.43 | 35.43 ± 1.11 |
+| Learned adaptive | — | 34.70 ± 0.46 |
 
 Differences this small are not decidable from a per-seed standard deviation, so
 the comparison is made with a **paired bootstrap over the 105 ISO weeks of the
@@ -56,6 +59,8 @@ temporal correlation in the errors:
 | STGCN, wind-aware vs no graph | +0.42 | [0.12, 0.74] | 0.003 | **no graph better** |
 | GraphWaveNet, distance vs no graph | +1.14 | [0.56, 1.75] | 0.000 | **no graph better** |
 | GraphWaveNet, wind-aware vs no graph | +0.36 | [0.01, 0.75] | 0.023 | **no graph better** |
+| GraphWaveNet, learned adaptive vs no graph | +1.27 | [0.58, 2.01] | 0.000 | **no graph better** |
+| GraphWaveNet, learned adaptive vs wind-aware | +0.90 | [0.46, 1.39] | 0.000 | **wind-aware better** |
 
 ### Where the graph penalty is actually paid: severe episodes
 
@@ -73,6 +78,38 @@ membership shows where the ablation comes from:
 The graph penalty is paid almost entirely in the high-pollution regime, and
 spatial mixing does not rescue the high-pollution case even where transport
 should matter most.
+
+### Spatial pattern: the periphery pays the most
+
+If a graph carried information a station could not see, the benefit should be
+largest at the edge of the network. The opposite holds. Using distance from
+the network centroid as a proxy for peripherality, the penalty that spatial
+mixing imposes relative to the no-graph model grows with that distance, for
+every architecture and every graph type:
+
+| model | wind-aware penalty near / far | distance penalty near / far | corr(radius, penalty) |
+|-------|------------------------------|-----------------------------|------------------------|
+| STGCN | +0.13 / +0.62 | +0.35 / +0.72 | +0.42 (wind), +0.34 (dist) |
+| GraphWaveNet | +0.20 / +0.33 | +1.23 / +1.06 | +0.31 (wind), +0.11 (dist) |
+
+### Adjacency introspection
+
+The self-adaptive adjacency that Graph WaveNet learns is essentially
+uncorrelated with pairwise distance (Spearman *r* = +0.09) and with the
+prevailing-wind alignment (*r* = +0.02). The network learns a structure that
+is neither the distance graph nor the wind-aware graph — and that structure
+does not pay either.
+
+### Case studies
+
+| event | start | network peak (µg/m³) | persistence | ridge | no graph | wind-aware | GWN wind |
+|-------|-------|---------------------|-----------|-------|----------|------------|----------|
+| Diwali 2024 | 2024-10-30 | 221 | 70.8 | **59.5** | 65.9 | 81.7 | 92.3 |
+| Winter inversion | 2024-01-13 | 575 | 59.9 | 86.3 | **20.1** | **20.0** | 27.2 |
+| Dust episode | 2024-05-10 | 162 | 24.1 | 15.6 | 17.8 | 15.5 | **14.5** |
+
+Diwali is the failure case: fireworks add a sharp anthropogenic spike with no
+precursor in the inputs, so the neural models smooth over it and lose to ridge.
 
 ### Rolling-origin check (is it just the split boundary?)
 
@@ -145,6 +182,17 @@ Split distributions are matched (mean 102.0 / 98.0 / 97.5 µg/m³; fraction
 full winters**, so winter dynamics are learnable.  Split boundaries are
 contiguous (0 h train→val) with a 23 h gap before test; no window's input or
 target ever crosses a boundary.
+
+### Weather coverage caveat
+
+The weather variables are the station-measured values in the CPCB files, not a
+reanalysis.  That gives genuine local structure (mean cross-station correlation
+of `wind_u` is 0.11; no two stations ever record the same wind in the same
+hour) — but **9 of the 42 stations report no wind at all**, in any year.  For
+those stations the wind-aware graph falls back to the network-mean wind
+direction.  `scripts/wind_coverage_analysis.py` shows that the penalty any
+graph imposes is *larger* at the stations that do have wind: the damage a
+graph does scales with how much it mixes.
 
 ---
 
