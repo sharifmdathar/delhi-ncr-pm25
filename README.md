@@ -7,14 +7,15 @@ beat a static distance graph for Graph WaveNet (33.77 vs 34.60 µg/m³, paired
 difference 0.78, 95% CI [0.40, 1.15] by bootstrap over 105 test weeks), but is
 indistinguishable from it for STGCN (33.05 vs 33.18, CI [−0.11, 0.30]). More
 importantly, **no graph at all beats both** in both architectures
-(0.36–0.51 µg/m³, both CIs excluding zero) — and so does Graph WaveNet's
-*learned* adaptive adjacency, which is the worst graph of the four
-(+1.27 µg/m³ vs no graph, CI [0.58, 2.01]). The wind-aware edge over the
-distance graph is concentrated in severe-episode windows (1.22 µg/m³ during
-episodes against 0.23 outside) — but the same cut shows that *all* spatial
-mixing is a net loss: no-graph is best during episodes too, where the graph
-penalty is 0.5–1.7 µg/m³. Every neural model here does beat two strong
-baselines, so the comparison is meaningful rather than a broken-model artefact.
+(0.36–0.51 µg/m³, both CIs excluding zero) — and Graph WaveNet's *learned*
+adaptive adjacency, which is trained end-to-end rather than designed by hand,
+is the **worst** graph of the four (+1.27 µg/m³ vs no graph, CI [0.58, 2.01]).
+The wind-aware edge over the distance graph is concentrated in severe-episode
+windows (1.22 µg/m³ during episodes against 0.23 outside) — but the same cut
+shows that *all* spatial mixing is a net loss: no-graph is best during
+episodes too, where the graph penalty is 0.5–1.7 µg/m³. Every neural model
+here does beat two strong baselines, so the comparison is meaningful rather
+than a broken-model artefact.
 
 ---
 
@@ -31,6 +32,7 @@ baselines, so the comparison is meaningful rather than a broken-model artefact.
 | GraphWaveNet, wind-aware | 33.77 ± 0.24 | 59.42 | 0.597 | 15.56 | 37.65 |
 | GraphWaveNet, distance | 34.60 ± 0.61 | 59.96 | 0.590 | 15.67 | 38.48 |
 | GraphWaveNet, correlation | 35.43 ± 1.11 | 59.23 | 0.600 | 15.96 | 37.88 |
+| GraphWaveNet, learned adaptive | 34.70 ± 0.47 | 59.51 | 0.596 | 16.08 | 37.65 |
 | LSTM Multivariate | 38.20 ± 1.83 | 66.94 | 0.489 | 16.27 | 41.66 |
 | Transformer | 38.88 ± 1.04 | 66.34 | 0.498 | 16.38 | 42.41 |
 | Ridge (24 lags) | 44.03 | 73.69 | 0.380 | 15.83 | 42.34 |
@@ -44,7 +46,7 @@ baselines, so the comparison is meaningful rather than a broken-model artefact.
 | Wind-aware (directed) | 33.05 ± 0.12 | 33.77 ± 0.24 |
 | Distance (static) | 33.18 ± 0.15 | 34.60 ± 0.61 |
 | Correlation (static) | 33.46 ± 0.43 | 35.43 ± 1.11 |
-| Learned adaptive | — | 34.70 ± 0.46 |
+| Learned adaptive | — | 34.70 ± 0.47 |
 
 Differences this small are not decidable from a per-seed standard deviation, so
 the comparison is made with a **paired bootstrap over the 105 ISO weeks of the
