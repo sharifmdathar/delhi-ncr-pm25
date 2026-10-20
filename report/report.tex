@@ -139,7 +139,50 @@ $[1.34,2.34)$ & 680 & 23.01 & 23.01 & 22.74 & 23.09 \\
 \end{tabular}
 \end{table}
 
+\begin{table}[H]
+\centering
+\caption{Paired bootstrap over test weeks for the MAE difference (A minus B). Negative means A is better; the interval excludes zero when the difference is real.}
+\begin{tabular}{lrrrc}
+	oprule
+comparison & $\Delta$MAE & 95\% CI & $P(A<B)$ & weeks \
+\midrule
+stgcn distance minus stgcn wind aware & 0.05 & [-0.20, 0.33] & 0.358 & 105 \\
+stgcn distance minus stgcn identity & 0.53 & [0.12, 0.95] & 0.005 & 105 \\
+stgcn wind aware minus stgcn identity & 0.47 & [0.18, 0.79] & 0.001 & 105 \\
+graph wavenet distance minus graph wavenet wind aware & 1.03 & [0.61, 1.46] & 0.000 & 105 \\
+graph wavenet distance minus graph wavenet identity & 1.46 & [0.80, 2.16] & 0.000 & 105 \\
+graph wavenet wind aware minus graph wavenet identity & 0.43 & [0.07, 0.81] & 0.007 & 105 \\
+stgcn identity minus lstm univariate distance & -0.28 & [-0.43, -0.13] & 1.000 & 105 \\
+stgcn identity minus Ridge(24 lags) & -11.34 & [-13.05, -9.70] & 1.000 & 105 \\
+stgcn identity minus Persistence & -22.27 & [-25.79, -19.01] & 1.000 & 105 \\
+ottomrule
+\end{tabular}
+\end{table}
 
+\subsection{Is the result an artefact of the train/test boundary?}
+Because several real years are available we can also run a rolling-origin
+evaluation: fold $k$ trains on 2019 through year $Y$, validates on the last
+quarter of $Y$ for early stopping, and tests on year $Y+1$.  The ranking of
+graph structures is essentially unchanged as the boundary moves --- the no-graph
+variant is at or within a few tenths of a $\mu$g/m$^3$ of the best in every
+fold, and wins outright in three of five.  The conclusion is therefore not an
+artefact of one particular split.
+
+\begin{table}[H]
+\centering
+\caption{Rolling-origin evaluation: train on 2019--$Y$, test on $Y{+}1$ (STGCN, MAE in $\mu$g/m$^3$).}
+\begin{tabular}{lrrrrrl}
+\toprule
+fold & test year & no graph & wind-aware & distance & best & margin  \\
+\midrule
+fold0 & 2021 & 36.65 & 36.98 & 37.34 & identity & 0.33 \\
+fold1 & 2022 & 32.96 & 33.09 & 32.61 & distance & 0.35 \\
+fold2 & 2023 & 33.03 & 33.01 & 33.58 & wind_aware & 0.02 \\
+fold3 & 2024 & 33.82 & 34.57 & 34.22 & identity & 0.39 \\
+fold4 & 2025 & 30.76 & 30.77 & 31.41 & identity & 0.01 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Severe episodes}
 Episodes are sustained periods with PM2.5 above 150 $\mu$g/m$^3$ for at least 6 hours. The network-wide episode-hour fraction is 15.6\%.

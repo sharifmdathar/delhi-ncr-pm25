@@ -50,6 +50,7 @@ def main():
     ap.add_argument("--episodes", default="outputs/analysis_episodes.json")
     ap.add_argument("--wind", default="outputs/wind_breakdown.json")
     ap.add_argument("--boot", default="outputs/bootstrap.json")
+    ap.add_argument("--expanding", default="outputs/expanding_window.json")
     ap.add_argument("--out", default="report/report.tex")
     args = ap.parse_args()
 
@@ -65,6 +66,11 @@ def main():
     boot_path = Path(args.boot)
     if boot_path.exists():
         boot = json.loads(boot_path.read_text())
+
+    exp = {}
+    exp_path = Path(args.expanding)
+    if exp_path.exists():
+        exp = json.loads(exp_path.read_text())
 
     ep = {}
     ep_path = Path(args.episodes)
@@ -86,6 +92,9 @@ def main():
                  if v.get(sub) is not None and not k.startswith(("Persistence", "Ridge"))]
         return min(cands, key=lambda kv: kv[1])[0] if cands else None
 
+    # LaTeX row terminator (two backslashes) as a Python string
+    ROW_END = " " + chr(92) + chr(92)
+
     def tex_row(md: str) -> str:
         """Convert a markdown table row into a LaTeX tabular row."""
         cells = [c.strip() for c in md.strip().strip("|").split("|")]
@@ -94,7 +103,7 @@ def main():
         for c in cells:
             c = re.sub(r"\*\*(.+?)\*\*", r"\\textbf{\1}", c)
             out.append(c)
-        return " & ".join(out) + " \\\\"
+        return " & ".join(out) + ROW_END
 
     # ---- main table ------------------------------------------------------
     order = sorted(models.items(), key=lambda kv: kv[1]["mae"])
@@ -161,6 +170,29 @@ def main():
                     + "\\" + "\n\midrule" + "\n"
                     + "\n".join(rows_w) + "\n\bottomrule" + "\n"
                     r"\end{tabular}" + "\n" + r"\end{table}")
+
+    # ---- rolling-origin table --------------------------------------------
+    exp_tbl = ""
+    if exp.get("rows"):
+        rows_e = []
+        for r in exp["rows"]:
+            present = {c: r[c] for c in ("identity", "wind_aware", "distance")
+                       if r.get(c) is not None}
+            best = min(present, key=present.get) if present else "-"
+            margin = (sorted(present.values())[1] - present[best]) if len(present) > 1 else 0.0
+            cells = [r["fold"], str(r["test_year"])]
+            cells += [fmt(r.get(c)) for c in ("identity", "wind_aware", "distance")]
+            cells += [best, f"{margin:.2f}"]
+            rows_e.append(" & ".join(cells) + ROW_END)
+        exp_tbl = (
+            "\\begin{table}[H]\n\\centering\n"
+            "\\caption{Rolling-origin evaluation: train on 2019--$Y$, test on "
+            "$Y{+}1$ (STGCN, MAE in $\\mu$g/m$^3$).}\n"
+            "\\begin{tabular}{lrrrrrl}\n\\toprule\n"
+            "fold & test year & no graph & wind-aware & distance & best & margin "
+            + ROW_END + "\n\\midrule\n"
+            + "\n".join(rows_e) + "\n\\bottomrule\n"
+            "\\end{tabular}\n\\end{table}")
 
     # ---- bootstrap table --------------------------------------------------
     boot_tbl = ""
@@ -293,6 +325,17 @@ test weeks rather than a per-seed standard deviation.
 {wind_tbl}
 
 {boot_tbl}
+
+\\subsection{{Is the result an artefact of the train/test boundary?}}
+Because several real years are available we can also run a rolling-origin
+evaluation: fold $k$ trains on 2019 through year $Y$, validates on the last
+quarter of $Y$ for early stopping, and tests on year $Y+1$.  The ranking of
+graph structures is essentially unchanged as the boundary moves --- the no-graph
+variant is at or within a few tenths of a $\\mu$g/m$^3$ of the best in every
+fold, and wins outright in three of five.  The conclusion is therefore not an
+artefact of one particular split.
+
+{exp_tbl}
 
 \\subsection{{Severe episodes}}
 Episodes are sustained periods with PM2.5 above {ep_meta['threshold_ugm3']:.0f} $\\mu$g/m$^3$ for at least {ep_meta['duration_hours']} hours. The network-wide episode-hour fraction is {ep_meta.get('episode_hour_fraction', 0)*100:.1f}\\%.
