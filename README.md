@@ -1,36 +1,42 @@
-# Delhi-NCR Hourly PM2.5 Spatiotemporal Forecasting
+# Do graphs help forecast PM2.5? Delhi-NCR, 42 stations, 2019-2025
 
-**Research Question:** Does a wind-aware dynamic graph beat a static distance graph, and when?
+I tested whether graph neural networks (STGCN, GraphWaveNet) with distance-based
+or wind-aware edges beat strong non-graph models for hourly PM2.5 forecasting
+(1-48 h) across 42 CPCB stations in Delhi-NCR.
 
-**Answer:** Partly — and the detail matters. A wind-aware directed graph *does*
-beat a static distance graph for Graph WaveNet (33.77 vs 34.60 µg/m³, paired
-difference 0.78, 95% CI [0.40, 1.15] by bootstrap over 105 test weeks), but is
-indistinguishable from it for STGCN (33.05 vs 33.18, CI [−0.11, 0.30]). More
-importantly, **no graph at all beats both** in both architectures
-(0.36–0.51 µg/m³, both CIs excluding zero) — and Graph WaveNet's *learned*
-adaptive adjacency, which is trained end-to-end rather than designed by hand,
-is the **worst** graph of the four (+1.27 µg/m³ vs no graph, CI [0.58, 2.01]).
+**Main findings (test set 2024-25, 8 seeds, paired bootstrap over test weeks)**
 
-Two follow-ups pin down *why*, and they change the story rather than confirm it:
+- The best model (per-station STGCN without a graph, predicting changes from the
+  last observation) reaches MAE ~32.6 µg/m³, about **15% better** than the best
+  simple baseline (persistence / seasonal naive, 38.6; paired CI [4.8, 7.3]).
+- **Adding a graph does not help**: distance and wind-aware graphs are
+  0.3-1.3 µg/m³ *worse* than no graph. Wind-aware beats distance only for
+  GraphWaveNet (0.83, CI [0.49, 1.18]); for STGCN the two are indistinguishable
+  (0.13, CI [-0.04, 0.32]). A graph learned end-to-end (GraphWaveNet's adaptive
+  adjacency) is the worst of the four.
+- **Giving the no-graph model the network-wide mean PM2.5 adds essentially
+  nothing** (0.06 µg/m³, 0.2%), so the graph is not delivering a regional
+  signal that a free feature could have provided.
+- Rebuilding the wind-aware graph with **ERA5** wind instead of the stations'
+  own (noisy, and missing for 9 of 42) changes nothing — the null result is not
+  an artefact of the wind data. This tests one edge construction, not
+  wind-aware graphs in general.
+- For a station the model has never seen and whose own history is missing,
+  **inverse-distance interpolation of the neighbours beats the graph models I
+  trained** (13.1 µg/m³ better, CI [8.7, 18.0]) — but those models were trained
+  for forecasting, never for a missing own history, so read that as "graph
+  models trained for forecasting do not transfer to unseen stations better than
+  IDW", not as a general verdict on GNNs.
 
-- **The graph is not delivering the regional signal.** A no-graph model given
-  the network-wide mean PM2.5 as an extra input feature scores 32.60 against
-  32.66 without it (paired difference 0.05, CI [−0.11, −0.00]) — and is
-  significantly better than every graph model. So handing the model the
-  regional signal for free is worth nothing, and the graph's spatial mixing is
-  a pure cost.
-- **Nor is the null result caused by the noisy local wind.** Rebuilding the
-  wind-aware graph with ERA5 reanalysis instead of the stations' own
-  (noisy, and missing for 9 of 42) anemometers changes nothing. This tests
-  one edge construction, not wind-aware graphs in general.
+**Data and integrity.** Hourly CPCB data (`Vonter/india-cpcb-aqi`, ODbL); see
+[DATA_CARD.md](DATA_CARD.md) and [LICENCE.md](LICENCE.md). Targets are never
+imputed, and missing hours are masked out of every loss and metric. The report
+documents the two bugs I caught along the way: a silent synthetic-data fallback
+and a faulty persistence baseline, found by a sanity check rather than by
+inspection.
 
-The differences are statistically clear but small: the largest gap between
-graph structures is ~1.3 µg/m³ on a score of roughly 33, i.e. about 4%. The
-headline margin is against the best *simple* baseline — 32.66 against
-seasonal-naive's 38.63, **15.5% better** (paired CI [4.84, 7.38] µg/m³).
-
-Every neural model here does beat two strong baselines, so the comparison is
-meaningful rather than a broken-model artefact.
+Quick start: `pytest` and the commands below run on the bundled sample in
+seconds. Full report: `report/report.pdf`.
 
 ---
 
@@ -230,14 +236,14 @@ nothing else.
 - **For an unseen station that still has its own history, the graph still
   hurts** (0.46–0.84 µg/m³, all intervals excluding zero) — but the models
   *do* generalise to new monitors, beating the best simple spatial baseline
-  by 5.15 and the network-wide mean by 11.50.
+  by 5.27 and the network-wide mean by 11.66.
 - **With the station's own history removed as well, the graph loses badly.** A
   two-line inverse-distance-weighted average of the neighbours reaches 41.24
   (R² = 0.51); the best graph model reaches 53.45 (R² = 0.15). The graph is
-  **14.3 µg/m³ worse**, CI [9.9, 19.1]. The network-wide mean alone (47.01)
+  **13.1 µg/m³ worse**, CI [8.7, 18.0]. The network-wide mean alone (47.01)
   also beats every graph model.
 
-> We first reported this as "the graph is essential, a 13.4 µg/m³ improvement,
+> We first reported this as "the graph is essential, a 14.9 µg/m³ improvement,
 > the largest effect in the study". That was against a strawman — the only
 > no-graph comparator there was a model with its eyes closed, and the baselines
 > that *did* have access to the station's own history were unbeaten anyway.
@@ -566,10 +572,14 @@ unobserved. The target's observed coverage is 90.80% (train), 92.32% (val) and
 
 **Code: MIT** ([LICENSE](LICENSE)).
 
-**Data: not redistributed.** No measurements are included in this
-repository — they are fetched by the scripts. Full attribution and the
-licence position are in [LICENCE.md](LICENCE.md) and
-[DATA_CARD.md](DATA_CARD.md). In short:
+**Data: not redistributed — with one stated exception.** The repository
+contains no measurements except a **212 KB sample** of the CPCB records
+(`data/sample/sample_dataset.npz`, 8 stations, 3 months), which is a Derived
+Database offered under the ODbL with attribution, as that licence requires.
+Everything else — the 1.3 GB record, the ERA5 extract, the frozen dataset, the
+checkpoints — is fetched by the scripts. Full attribution and the licence
+position, including the ambiguity in CPCB's own terms, are in
+[LICENCE.md](LICENCE.md) and [DATA_CARD.md](DATA_CARD.md). In short:
 
 - PM2.5 and station meteorology: **Central Pollution Control Board (CPCB)**,
   Ministry of Environment, Forest and Climate Change, Government of India
@@ -581,9 +591,8 @@ licence position are in [LICENCE.md](LICENCE.md) and
 - Station coordinates: the **XKDR Forum** station registry
   (<https://airquality.xkdr.org/>).
 
-The four small station-metadata tables that *are* tracked (identifier, city,
-name, coordinates — no measurements) are offered under the ODbL with
-attribution, and are regenerable with one command. CPCB's own website
-copyright policy adds a condition beyond the ODbL grant; we flag that
-ambiguity explicitly in `LICENCE.md` rather than resolving it in our own
-favour.
+CPCB's own website copyright policy adds a condition beyond the ODbL grant.
+We flag that ambiguity explicitly in `LICENCE.md` rather than resolving it in
+our own favour, and we chose the conservative path: a 212 KB sample rather
+than the full record. The sample can be deleted on request and the pipeline
+still runs from the fetch scripts.

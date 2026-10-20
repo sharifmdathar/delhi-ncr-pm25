@@ -160,8 +160,8 @@ A no-graph model given the network-wide mean PM2.5 as an extra input feature:
 | no graph (GraphWaveNet) | 33.44 ± 0.13 |
 | wind-aware graph (GraphWaveNet) | 33.77 ± 0.24 |
 
-Telling the model the regional signal explicitly is worth nothing (−0.05, CI
-[−0.11, −0.00]) and that model is significantly better than every graph
+Telling the model the regional signal explicitly is worth 0.06 µg/m³, or 0.2%
+(−0.06, CI [−0.11, −0.01]) and that model is significantly better than every graph
 model. The graph is not delivering the regional signal; its mixing is a pure
 cost.
 
@@ -222,7 +222,7 @@ training.
 **The corrected result.** In the second variant (own history hidden as well) a
 two-line inverse-distance-weighted average of the neighbours reaches 41.24
 (R² = 0.51) while the best graph model reaches 53.45 (R² = 0.15) — the graph
-is **14.3 µg/m³ worse**, CI [9.9, 19.1]. An earlier version of this summary
+is **13.1 µg/m³ worse**, CI [8.7, 18.0]. An earlier version of this summary
 reported the opposite, against a no-graph model that had no information at
 all.
 

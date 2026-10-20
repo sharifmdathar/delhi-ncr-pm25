@@ -199,6 +199,10 @@ def run(model_name, ds, cfg, args, seed, device):
         holdout_idx = np.array([sids.index(s) for s in holdout_ids], dtype=np.int64)
         print(f"leave-station-out: {args.holdout_k} stations held out "
               f"(mode={args.holdout_mode}): {holdout_ids}")
+    node_dropout = float(args.node_dropout)
+    if node_dropout > 0:
+        print(f"node dropout: each station's own history is hidden with "
+              f"probability {node_dropout:.0%} per training window")
     train_station_mask = np.ones(n_stations, dtype=bool)
     train_station_mask[holdout_idx] = False
     holdout_blind_input = bool(args.holdout_k) and args.holdout_mode in ("input", "both")
@@ -235,6 +239,18 @@ def run(model_name, ds, cfg, args, seed, device):
                 mb = mb.clone()
                 xb[:, holdout_idx, :] = 0.0
                 mb[:, holdout_idx] = 0.0
+            if node_dropout > 0:
+                # Node dropout: hide a random subset of stations' own history
+                # for this window, so the model practises the situation it
+                # faces when it has to predict a station it has never seen.
+                # The targets are NOT masked: the model must still predict
+                # those stations, from the graph.
+                xb = xb.clone()
+                mb = mb.clone()
+                hide = torch.rand(n_stations) < node_dropout
+                if hide.any():
+                    xb[:, hide, :] = 0.0
+                    mb[:, hide] = 0.0
             xs.append(torch.cat([xb, mb.unsqueeze(-1)], dim=-1))
             ys.append(yb)
             ms.append(ymask)
@@ -309,13 +325,16 @@ def run(model_name, ds, cfg, args, seed, device):
             tag = f"{model_name}_{args.graph}_s{seed}" + (f"_{args.fold}" if args.fold else "")
             if holdout_ids:
                 tag += f"_lso{args.holdout_k}_{args.holdout_mode}"
+            if args.node_dropout > 0:
+                tag += f"_nd{int(args.node_dropout*100)}"
             torch.save({"state_dict": model.state_dict(),
                         "model": model_name,
                         "config": cfg, "graph": args.graph, "seed": seed,
                         "n_stations": n_stations, "val_mae_ugm3": best,
                         "epoch": best_epoch,
                         "holdout_stations": list(holdout_ids),
-                        "holdout_mode": args.holdout_mode},
+                        "holdout_mode": args.holdout_mode,
+                        "node_dropout": node_dropout},
                        CKPT_DIR / f"{tag}.pt")
         else:
             patience += 1
@@ -348,6 +367,11 @@ def main():
     ap.add_argument("--data", default=None,
                     help="frozen dataset to train on (default: the full one; "
                          "use data/sample/sample_dataset.npz for the sample)")
+    ap.add_argument("--node_dropout", type=float, default=0.0,
+                    help="probability of hiding a station's own history for a "
+                         "training window (node dropout).  Trains the model for "
+                         "the case where it must predict a station whose own "
+                         "history is unavailable.")
     ap.add_argument("--holdout_k", type=int, default=0,
                     help="leave-station-out: number of stations whose targets are "
                          "held out of training entirely (0 = off)")

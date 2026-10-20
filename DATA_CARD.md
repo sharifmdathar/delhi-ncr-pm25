@@ -124,10 +124,19 @@ disappointing.
 
 | committed | not committed |
 |---|---|
-| `src/`, `scripts/`, `configs/`, `tests/` — all code | `data/raw/cpcb_station_csv/` — the CPCB records |
+| `src/`, `scripts/`, `configs/`, `tests/` — all code | `data/raw/cpcb_station_csv/` — the CPCB records (1.3 GB) |
 | `data/raw/stations.csv`, `station_coords.csv`, `cpcb_stations.csv`, `cpcb_station_catalog.csv` — public station metadata | `data/raw/era5_wind/` — the ERA5 extract |
-| `EXPERIMENTS.md`, `RESULTS_SUMMARY.md`, `report/report.tex` | `data/processed/*.npz` — the frozen dataset |
-| `outputs/provenance.md` — the provenance and mask audit | `checkpoints/*.pt` — model weights |
+| `data/sample/sample_dataset.npz` — a 212 KB Derived Database (8 stations, 3 months) | `data/processed/*.npz` — the frozen full dataset |
+| `EXPERIMENTS.md`, `RESULTS_SUMMARY.md`, `report/report.tex` | `checkpoints/*.pt` — model weights |
+| `outputs/provenance.md` — the provenance and mask audit | |
 
-Everything not committed is regenerable with the commands in §3 followed by
+**The one exception is the sample dataset, and it is deliberate.** It is a
+Derived Database of the CPCB records, offered under the Open Database Licence
+1.0 with attribution, as that licence requires of adapted versions. We chose
+to publish a 212 KB sample rather than the 1.3 GB record, and CPCB's own
+website copyright policy adds a condition beyond the ODbL grant which we
+flag rather than resolve in our own favour — see `LICENCE.md` for the full
+position and for how to remove the sample.
+
+Everything else is regenerable with the commands in §3 followed by
 `scripts/train_all.py`.

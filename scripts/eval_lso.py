@@ -118,16 +118,23 @@ def main():
         blob = torch.load(c, map_location="cpu", weights_only=False)
         ho = list(blob.get("holdout_stations") or [])
         mode = blob.get("holdout_mode", "target")
-        key = (tuple(sorted(ho)), mode)
+        # node-dropout runs are a separate variant: the models were trained
+        # with a random subset of stations' own history hidden, so they have
+        # practised the situation the held-out station is in
+        nd = blob.get("node_dropout") or 0.0
+        variant = "node-dropout" if nd > 0 else "plain"
+        key = (tuple(sorted(ho)), mode, variant)
         by_run[key].append(c)
         holdout_map[key] = ho
 
     results = []
-    for (ho_ids, mode), files in sorted(by_run.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+    for (ho_ids, mode, variant), files in sorted(by_run.items(),
+                                                 key=lambda kv: (kv[0][2], kv[0][1], kv[0][0])):
         ho_idx = [sids.index(s) for s in ho_ids]
         ho_mask = np.zeros(len(sids), dtype=bool)
         ho_mask[ho_idx] = True
-        print(f"\n=== holdout mode={mode}, {len(ho_ids)} stations: {ho_ids} ===")
+        print(f"\n=== holdout mode={mode}, variant={variant}, "
+              f"{len(ho_ids)} stations: {ho_ids} ===")
 
         rows = []
         per_win = {}
@@ -175,10 +182,12 @@ def main():
             except Exception as e:                       # noqa: BLE001
                 print(f"  {Path(f).name}: FAILED {e}")
 
-        results.append({"mode": mode, "holdout_stations": list(ho_ids),
+        results.append({"mode": mode, "variant": variant,
+                        "holdout_stations": list(ho_ids),
                         "n_holdout": len(ho_ids), "rows": rows})
+        _suffix = "" if variant == "plain" else "_nd"
         np.savez_compressed(
-            OUT / f"lso_per_window_{mode}.npz",
+            OUT / f"lso_per_window_{mode}{_suffix}.npz",
             **{k: np.array(v, dtype=np.float64) for k, v in per_win.items()})
 
     # week index for the evaluation windows (for the paired bootstrap)
