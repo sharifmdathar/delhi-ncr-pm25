@@ -71,18 +71,21 @@ python scripts/make_report.py
 | Item | Value |
 |------|-------|
 | Source | CPCB 15-min, via `Vonter/india-cpcb-aqi` releases (2009–2025) |
-| Stations | 39 Delhi (DL001–DL039), ≥70% real coverage in every split |
-| Period | 2024-01-01 → 2025-12-31 (17,521 hours) |
+| Stations | **42** (34 Delhi + 8 Noida/Ghaziabad), ≥70% real coverage in every split |
+| Period | **2019-01-01 → 2025-12-31** (61,345 hours, 7 years) |
 | Target | Hourly PM2.5 (µg/m³) |
 | Input | Past 72 hours |
 | Output | Next 48 hours |
 | Features | PM2.5 + station-measured T, RH, wind speed/direction, rainfall |
-| Splits | Train Jan–Sep 2024 · Val Oct–Dec 2024 · Test 2025 (chronological only) |
+| Splits | Train 2019–2022 (34,922 windows) · Val 2023 (8,641) · Test 2024–2025 (17,402), chronological, no window crosses a boundary |
 | Normalisation | log1p(PM2.5) → z-score (train-only stats) |
 | Missing | masked (1 = really observed), honoured in loss and metrics |
 
-Split distributions are matched (mean 102.0 / 98.0 / 97.5 µg/m³), so the
-training split contains four full winters.
+Split distributions are matched (mean 102.0 / 98.0 / 97.5 µg/m³; fraction
+> 300 µg/m³ = 4.82% / 4.23% / 4.15%), and the training split contains **four
+full winters**, so winter dynamics are learnable.  Split boundaries are
+contiguous (0 h train→val) with a 23 h gap before test; no window's input or
+target ever crosses a boundary.
 
 ---
 

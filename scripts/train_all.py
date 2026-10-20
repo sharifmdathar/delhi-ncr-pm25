@@ -34,6 +34,7 @@ import torch.nn as nn
 
 from src.data.dataset import load_dataset
 from src.data.graphs import build_graph
+from src.data.splits import get_split
 from src.models.lstm import build_lstm_model
 from src.models.transformer import build_transformer_model
 from src.models.stgcn import build_stgcn_model
@@ -133,8 +134,10 @@ def run(model_name, ds, cfg, args, seed, device):
     n_stations = X.shape[1]
     n_feat = X.shape[2]
 
-    tr = ds["split_indices_train"]
-    va = ds["split_indices_val"]
+    split = get_split(ds, args.split_mode, args.fold)
+    tr, va = split["train"], split["val"]
+    print(f"split={args.split_mode}" + (f"/{args.fold}" if args.fold else "")
+          + f": train={len(tr)}h val={len(va)}h")
     train_starts = np.arange(int(tr[0]), int(tr[-1]) - 72 - 48 + 2)
     # Evenly spaced validation windows so checkpoint selection is not biased
     # towards the start of the split (which would be the winter peak).
@@ -242,7 +245,7 @@ def run(model_name, ds, cfg, args, seed, device):
             best = val_mae
             best_epoch = epoch + 1
             patience = 0
-            tag = f"{model_name}_{args.graph}_s{seed}"
+            tag = f"{model_name}_{args.graph}_s{seed}" + (f"_{args.fold}" if args.fold else "")
             torch.save({"state_dict": model.state_dict(),
                         "model": model_name,
                         "config": cfg, "graph": args.graph, "seed": seed,
@@ -275,6 +278,8 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--patience", type=int, default=8)
     ap.add_argument("--val_windows", type=int, default=400)
+    ap.add_argument("--split_mode", default="fixed", choices=["fixed", "expanding"])
+    ap.add_argument("--fold", default=None, help="fold name for expanding mode")
     ap.add_argument("--out", default="outputs/train_log.json")
     args = ap.parse_args()
 

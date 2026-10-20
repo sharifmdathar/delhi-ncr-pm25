@@ -59,15 +59,17 @@ widens there. Extreme pollution is where the remaining error lives.
 | Item | Value |
 |------|-------|
 | Source | CPCB 15-min, via `Vonter/india-cpcb-aqi` releases (2009–2025) |
-| Stations | 39 Delhi (DL001–DL039), ≥70% real coverage in every split |
-| Period | 2024-01-01 → 2025-12-31 (17,521 hours) |
-| Splits | Train Jan–Sep 2024 (6,433 windows) · Val Oct–Dec 2024 (2,088) · Test 2025 (8,617) |
+| Stations | **42** (34 Delhi + 8 Noida/Ghaziabad), ≥70% real coverage in every split |
+| Period | **2019-01-01 → 2025-12-31** (61,345 hours, 7 years) |
+| Splits | Train 2019–2022 (34,922 windows) · Val 2023 (8,641) · Test 2024–2025 (17,402) |
 | Features | PM2.5 + station-measured T/RH/wind/rain |
 | Normalisation | log1p + z-score, train split only |
 | Missing | masked (1 = really observed), honoured in loss and metrics |
 
 Split distributions are matched (mean 102.0 / 98.0 / 97.5 µg/m³; frac > 300 =
-4.82% / 4.23% / 4.15%), so the training split contains four full winters.
+4.82% / 4.23% / 4.15%), so the training split contains **four full winters**.
+Split boundaries are contiguous (0 h train→val) with a 23 h gap before test; no
+window's input or target ever crosses a boundary (verified programmatically).
 
 ## What made the models work
 

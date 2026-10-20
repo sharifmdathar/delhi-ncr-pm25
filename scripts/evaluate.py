@@ -23,10 +23,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
+import pandas as pd
 import torch
 
 from src.data.dataset import load_dataset
 from src.train.metrics import compute_metrics, compute_horizon_metrics
+from src.data.splits import get_split
 from scripts.train_all import build_model, _to_hn
 
 DATA_PATH = PROJECT_ROOT / "data" / "processed" / "delhi_ncr_pm25_2019_2025.npz"
@@ -190,6 +192,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", nargs="+", default=None)
     ap.add_argument("--split", default="test", choices=["train", "val", "test"])
+    ap.add_argument("--split_mode", default="fixed", choices=["fixed", "expanding"])
+    ap.add_argument("--fold", default=None)
+    ap.add_argument("--ckpt_suffix", default="", help="suffix to match checkpoint names")
     ap.add_argument("--max_windows", type=int, default=1500)
     ap.add_argument("--out", default="outputs/eval_results.json")
     args = ap.parse_args()
@@ -200,7 +205,8 @@ def main():
     norm_std = float(ds["norm_std"])
     n_st = ds["X_full"].shape[1]
 
-    idx = ds[f"split_indices_{args.split}"]
+    split = get_split(ds, args.split_mode, args.fold)
+    idx = split[args.split]
     starts = np.arange(int(idx[0]), int(idx[-1]) - 72 - 48 + 2)
     if len(starts) > args.max_windows:
         # Evenly spaced subsample so all months are represented
@@ -209,12 +215,15 @@ def main():
     print(f"Split={args.split}: {len(starts)} windows, {n_st} stations")
 
     rows = []
+    preds = {}
 
     print("\n--- Baselines ---")
     p, t, m = persistence_predictions(ds, starts)
+    preds["Persistence"] = (p, t, m)
     rows.append(score("Persistence", p, t, m, norm_mean, norm_std))
 
     p, t, m = ridge_predictions(ds, starts)
+    preds["Ridge(24 lags)"] = (p, t, m)
     rows.append(score("Ridge(24 lags)", p, t, m, norm_mean, norm_std))
 
     print("\n--- Models ---")
@@ -223,13 +232,43 @@ def main():
         if "2019_2024" in name or "2024_2025" in name:
             continue          # stale checkpoints from the previous dataset
         mname = name.split("_s")[0]
+        if args.fold and not name.endswith(args.fold):
+            continue
+        if args.ckpt_suffix and args.ckpt_suffix not in name:
+            continue
         if args.models and not any(mm in name for mm in args.models):
             continue
         try:
             p, t, m = model_predictions(ds, ck, starts, device)
+            preds[name] = (p, t, m)
             rows.append(score(name, p, t, m, norm_mean, norm_std))
         except Exception as e:
             print(f"  {name}: FAILED {e}")
+
+    # Save per-window absolute errors (for paired bootstrap over test weeks)
+    import numpy as _np
+    per_win = {}
+    for name, (p, t, m) in preds.items():
+        pd_ = denorm(_np.nan_to_num(p, nan=0.0), norm_mean, norm_std)
+        td = denorm(_np.nan_to_num(t, nan=0.0), norm_mean, norm_std)
+        md = m > 0
+        err = _np.abs(pd_ - td)                    # (n_win, 48, N)
+        num = (err * md).sum(axis=(1, 2))          # per-window absolute error sum
+        cnt = md.sum(axis=(1, 2))                  # per-window observed count
+        # per-window, per-horizon error sums (for horizon breakdowns)
+        num_h = (err * md).sum(axis=2)              # (n_win, 48)
+        cnt_h = md.sum(axis=2)                      # (n_win, 48)
+        per_win[name] = {"num": num.tolist(), "cnt": cnt.tolist(),
+                         "num_h": num_h.tolist(), "cnt_h": cnt_h.tolist(),
+                         "start_idx": int(starts[0])}
+    _np.savez_compressed("outputs/per_window_errors.npz", **{
+        k: _np.array([v["num"], v["cnt"]], dtype=_np.float64) for k, v in per_win.items()})
+    _np.savez_compressed("outputs/per_window_horizon_errors.npz", **{
+        k: _np.array([v["num_h"], v["cnt_h"]], dtype=_np.float64) for k, v in per_win.items()})
+    # week index for each evaluation window (ISO week, for paired bootstrap)
+    _wk = pd.to_datetime(ds["timestamps"][starts.astype(int) + 72], unit="s").isocalendar()
+    _np.save("outputs/window_week.npy", _np.stack([_wk.year.values, _wk.week.values]).astype(_np.int32))
+    print(f"Saved per-window errors for {len(per_win)} models")
 
     rows.sort(key=lambda r: r["mae"])
     hdr = f"{'model':<44}{'MAE':>8}{'RMSE':>8}{'R2':>8}{'1h':>8}{'3h':>8}{'6h':>8}{'12h':>8}{'24h':>8}{'48h':>8}"

@@ -604,3 +604,77 @@ strong baselines, and (c) the comparison is replicated over 3 seeds.
 - ✅ `scripts/analyze.py` - episode analysis, per-station errors, 4 figures
 - ✅ `scripts/make_report.py` - LaTeX generated from the JSON artefacts
 - ✅ Animated AQI map (16 frames)
+
+---
+
+## 2026-10-20 - SPLIT VERIFICATION (Item 1 Audit)
+
+The summary claimed "2024-2025" and "4 winters in train", which looked
+contradictory. Audit of the actual frozen dataset:
+
+| Split | Hours | Date range | Windows | Observed | mean | std | frac>300 |
+|-------|-------|-------------|---------|----------|------|-----|----------|
+| train | 35,041 | 2019-01-01 → 2022-12-31 | 34,922 | 90.8% | 102.0 | 98.1 | 4.82% |
+| val | 8,760 | 2022-12-31 01:00 → 2023-12-31 | 8,641 | 92.3% | 98.0 | 92.2 | 4.23% |
+| test | 17,521 | 2024-01-01 → 2025-12-31 | 17,402 | 93.5% | 97.5 | 93.8 | 4.15% |
+
+**The data is 2019-2025 (7 years, 61,345 hours), 42 stations** (34 Delhi + 8
+Noida/Ghaziabad). The earlier "2024-2025 / 39 stations" wording in README and
+the report was simply WRONG and has been corrected. "4 winters in train" is
+correct: the train block spans four complete winter seasons.
+
+**Window containment (verified programmatically):** for every split, every
+window's inputs *and* targets lie wholly inside that split.
+- train last target = 2022-12-31 00:00 (= last train hour)
+- val first input = 2022-12-31 01:00; val last target = 2023-12-31 00:00
+- test first input = 2024-01-01 00:00; test last target = 2025-12-31 00:00
+
+**Gaps:** train→val = 0 h (contiguous chronological blocks), val→test = 23 h.
+No overlap in either case. Normalisation stats, correlation graph and
+wind-aware graph are all fitted on train only.
+
+### Weather provenance (item 4 audit)
+The concern was that ERA5's ~25 km grid would give every station nearly the
+same wind. That does not apply: the weather features are **measured at each
+station** (CPCB files carry AT/RH/WS/WD/RF), not taken from ERA5.
+
+| feature | mean cross-station correlation |
+|---------|-------------------------------|
+| temp_c | 0.804 |
+| wind_u | **0.111** |
+| wind_v | **0.108** |
+| rainfall | 0.128 |
+
+0% of hours have identical wind across stations; the within-hour spatial
+std of wind_u is 0.77 (normalised units). So the wind field does carry local
+structure.
+
+**But this exposes a new caveat:** the per-station wind vectors agree only
+weakly (r ≈ 0.11), so the *period-mean* wind direction used to orient the
+graph is itself a noisy estimate. That is a plausible reason the wind-aware
+graph adds little, and it is now stated in the report.
+
+### Does the graph gap depend on wind speed or horizon? (item 4)
+Windows binned by mean wind speed over the input period (STGCN family):
+
+| wind bin (proxy) | n_win | no graph | wind-aware | distance | correlation |
+|---|---|---|---|---|---|
+| low  [0.54, 1.01) | 660 | **47.80** | 49.08 | 49.66 | 50.14 |
+| mid  [1.01, 1.34) | 660 | **27.04** | 27.16 | 27.08 | 27.21 |
+| high [1.34, 2.34) | 680 | 23.01 | 23.01 | **22.74** | 23.09 |
+
+The ordering is the same in every bin, including high wind where transport
+should dominate. So the null result is not simply "the wind graph is badly
+estimated" -- the no-graph model is also at least as good when the wind is
+strong.
+
+Per-horizon (all test windows), the no-graph variant is best at *every*
+horizon for both architectures. For GraphWaveNet the wind-aware graph does
+beat the distance graph at every horizon (e.g. 1h 15.54 vs 15.67, 24h 33.78 vs
+34.68, 48h 37.69 vs 38.60) -- a consistent but small effect that the paired
+bootstrap over test weeks is used to judge.
+
+### Expanding-window evaluation added
+`src/data/splits.py` adds a rolling-origin mode over the 7 real years:
+train 2019..Y, validate on Q4 of Y, test on Y+1, for Y in 2020..2024. This
+checks that the conclusion is not an artefact of one train/test boundary.

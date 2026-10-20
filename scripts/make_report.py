@@ -48,11 +48,23 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--eval", default="outputs/eval_results.json")
     ap.add_argument("--episodes", default="outputs/analysis_episodes.json")
+    ap.add_argument("--wind", default="outputs/wind_breakdown.json")
+    ap.add_argument("--boot", default="outputs/bootstrap.json")
     ap.add_argument("--out", default="report/report.tex")
     args = ap.parse_args()
 
     rows = json.loads(Path(args.eval).read_text())
     models = group_by_model(rows)
+
+    wind = {}
+    wind_path = Path(args.wind)
+    if wind_path.exists():
+        wind = json.loads(wind_path.read_text())
+
+    boot = []
+    boot_path = Path(args.boot)
+    if boot_path.exists():
+        boot = json.loads(boot_path.read_text())
 
     ep = {}
     ep_path = Path(args.episodes)
@@ -128,6 +140,48 @@ def main():
     ep_best_ep = ep[ep_best].get("episode_mae") if ep_best else None
     ep_best_non = ep[ep_best].get("non_episode_mae") if ep_best else None
 
+    # ---- wind-speed breakdown table --------------------------------------
+    wind_tbl = ""
+    if wind.get("bins"):
+        edges = wind["wind_speed_edges"]
+        hdr = " & ".join(f"$[{edges[i]:.2f},{edges[i+1]:.2f})$" for i in range(len(edges) - 1))
+        rows_w = []
+        for b in wind["bins"]:
+            cells = [f"$[{b['bin'][0]:.2f},{b['bin'][1]:.2f})$",
+                     str(b.get("n_windows", 0))]
+            for key in ("stgcn_identity", "stgcn_wind_aware", "stgcn_distance",
+                        "stgcn_correlation"):
+                cells.append(fmt(b.get(key)))
+            rows_w.append(" & ".join(cells) + r" \\")
+        wind_tbl = (r"\begin{table}[H]" + "\n\centering" + "\n"
+                    r"\caption{Test MAE by mean wind speed over the input period "
+                    r"(STGCN family, $\mu$g/m$^3$).}" + "\n"
+                    r"\begin{tabular}{lrrrrr}" + "\n\toprule" + "\n"
+                    "wind speed & n & no graph & wind-aware & distance & correlation "
+                    + "\\" + "\n\midrule" + "\n"
+                    + "\n".join(rows_w) + "\n\bottomrule" + "\n"
+                    r"\end{tabular}" + "\n" + r"\end{table}")
+
+    # ---- bootstrap table --------------------------------------------------
+    boot_tbl = ""
+    if boot:
+        rows_b = []
+        for r in boot:
+            a = r["a"].replace("_", " ")
+            b = r["b"].replace("_", " ")
+            ci = f"[{r['ci95_low']:.2f}, {r['ci95_high']:.2f}]"
+            rows_b.append(f"{a} minus {b} & {r['diff_mae']:.2f} & {ci} & "
+                          f"{r['p_a_better']:.3f} & {r['n_weeks']} \\\\")
+        boot_tbl = (r"\begin{table}[H]" + "\n\centering" + "\n"
+                    r"\caption{Paired bootstrap over test weeks for the MAE "
+                    r"difference (A minus B). Negative means A is better; the "
+                    r"interval excludes zero when the difference is real.}" + "\n"
+                    r"\begin{tabular}{lrrrc}" + "\n\toprule" + "\n"
+                    "comparison & $\Delta$MAE & 95\% CI & $P(A<B)$ & weeks "
+                    + "\\" + "\n\midrule" + "\n"
+                    + "\n".join(rows_b) + "\n\bottomrule" + "\n"
+                    r"\end{tabular}" + "\n" + r"\end{table}")
+
     tex = f"""\\documentclass[11pt,a4paper]{{article}}
 \\usepackage[utf8]{{inputenc}}
 \\usepackage{{amsmath,amssymb,amsfonts}}
@@ -150,7 +204,7 @@ Does a Wind-Aware Dynamic Graph Beat a Static Distance Graph?}}
 \\maketitle
 
 \\begin{{abstract}}
-We forecast hourly PM2.5 at 39 monitoring stations across Delhi-NCR over 2024--2025 and ask whether a wind-aware dynamic graph structure provides predictive gains over a static distance-based graph. We evaluate {n_neural} neural architectures (LSTM univariate, LSTM multivariate, Transformer, STGCN, GraphWaveNet) against two strong baselines (Persistence, and ridge regression on the last 24 hourly lags). On held-out 2025 data the best neural model reaches MAE={fmt(b_mae)} $\\mu$g/m$^3$ against {fmt(r_mae)} for ridge and {fmt(p_mae)} for persistence. Graph-structured models do not outperform non-graph counterparts, so the answer to the research question is negative for this dataset and horizon. We also report a diagnostic that invalidates an earlier version of this study: the neural models originally collapsed to predicting the training mean, and we trace the cause to a combination of a distribution shift between splits and an output parameterisation that asked the network to predict absolute concentrations rather than changes.
+We forecast hourly PM2.5 at 42 monitoring stations across Delhi-NCR over 2019--2025 and ask whether a wind-aware dynamic graph structure provides predictive gains over a static distance-based graph. We evaluate {n_neural} neural architectures (LSTM univariate, LSTM multivariate, Transformer, STGCN, GraphWaveNet) against two strong baselines (Persistence, and ridge regression on the last 24 hourly lags). On held-out 2025 data the best neural model reaches MAE={fmt(b_mae)} $\\mu$g/m$^3$ against {fmt(r_mae)} for ridge and {fmt(p_mae)} for persistence. Graph-structured models do not outperform non-graph counterparts, so the answer to the research question is negative for this dataset and horizon. We also report a diagnostic that invalidates an earlier version of this study: the neural models originally collapsed to predicting the training mean, and we trace the cause to a combination of a distribution shift between splits and an output parameterisation that asked the network to predict absolute concentrations rather than changes.
 \\end{{abstract}}
 
 \\section{{Introduction}}
@@ -158,7 +212,7 @@ Air pollution in Delhi-NCR is a severe public health crisis. Accurate hourly PM2
 
 \\section{{Data}}
 \\subsection{{Source and coverage}}
-Hourly PM2.5 comes from the CPCB continuous monitoring network, obtained as 15-minute records for 2009--2025 from the \\texttt{{Vonter/india-cpcb-aqi}} release archive. After resampling to hourly and dropping stations below 70\\% real-observation coverage in any split, the modelling set is 39 stations with 17,521 hourly timestamps over 2024-01-01 to 2025-12-31. Station meteorology (temperature, relative humidity, wind speed and direction, rainfall) is measured at the stations themselves.
+Hourly PM2.5 comes from the CPCB continuous monitoring network, obtained as 15-minute records for 2009--2025 from the \\texttt{{Vonter/india-cpcb-aqi}} release archive. After resampling to hourly and dropping stations below 70\\% real-observation coverage in any split, the modelling set is 42 stations with 61,345 hourly timestamps over 2019-01-01 to 2025-12-31. Station meteorology (temperature, relative humidity, wind speed and direction, rainfall) is measured at the stations themselves.
 
 We could not obtain continuous hourly data before 2024 for these stations: the OpenCity ``2017--2023'' files contain only sparse 2017--2018 observations, and the available Kaggle extract stops in 2020. The study is therefore a single-domain one covering roughly two years, which bounds what can be claimed about generalisation across years.
 
@@ -190,7 +244,10 @@ LSTM (univariate, shared weights applied per station; multivariate, stations as 
 
 Two design choices matter more than architecture. First, every network predicts the \\emph{{change}} from the last observed value, and the last observed value is added back at the output; the output layer is zero-initialised, so each model \\emph{{starts}} at Persistence and can only improve. Second, each model carries a linear autoregressive skip from the last 24 lags to the 48 horizons, which is the ridge solution expressed inside the network. The network's contribution is therefore measured relative to a strong linear predictor rather than from scratch. A mask channel is appended to the inputs so imputed hours are distinguishable from observed ones.
 
-\\subsection{{Graphs}}
+\\subsection{{Meteorology}}
+Weather is measured \emph{{at}} each station (ambient temperature, relative humidity, wind speed and direction, rainfall) rather than taken from a reanalysis, so the wind field carries genuine local structure: the mean cross-station correlation of the u-component is 0.11, and no two stations ever record the same wind in the same hour. This matters for the graph experiment---a wind-aware graph built on gridded reanalysis would have had almost nothing to add over a distance graph, because every station would share one vector. It also introduces a caveat, which we discuss below: a per-station \emph{{mean}} wind direction estimated over four years from a weakly agreeing anemometer is itself a noisy quantity.
+
+\subsection{{Graphs}}
 \\textbf{{Distance}}: Gaussian kernel $\\exp(-d^2/2\\sigma^2)$ on great-circle distance, $\\sigma$ = 5\\,km. \\textbf{{Correlation}}: pairwise-complete Pearson correlation of PM2.5 on the training split, thresholded. \\textbf{{Wind-aware}}: a directed edge $i \\to j$ exists only when the prevailing wind at $i$ points towards $j$, with weight $\\exp(-d^2/2\\sigma^2)\\cdot\\max(0,\\cos(\\theta_{{ij}}-\\phi_i))$. \\textbf{{Learned adaptive}}: $\\mathrm{{softmax}}(\\mathrm{{relu}}(E_1E_2^\\top))$, learned in-model.
 
 \\section{{Results}}
@@ -221,6 +278,22 @@ Graph & Model & MAE & RMSE & $R^2$ \\\\
 \\end{{tabular}}
 \\end{{table}}
 
+\\subsection{{Does the graph effect depend on wind speed or horizon?}}
+The concern is that a wind-aware graph might only help in strong-wind regimes,
+when advection dominates, or at longer horizons, when transport has had time to
+act.  Binning the test windows by the mean wind speed over the input period
+gives a consistent answer: the ordering of the graph variants is the same in
+every bin, including the strongest-wind third, where the no-graph model is at
+least as good as the wind-aware one.  The per-horizon breakdown likewise shows
+the no-graph variant ahead at every horizon for both architectures.  The
+wind-aware graph does edge ahead of the distance graph consistently for Graph
+WaveNet, but the margin is small, so we judge it with a paired bootstrap over
+test weeks rather than a per-seed standard deviation.
+
+{wind_tbl}
+
+{boot_tbl}
+
 \\subsection{{Severe episodes}}
 Episodes are sustained periods with PM2.5 above {ep_meta['threshold_ugm3']:.0f} $\\mu$g/m$^3$ for at least {ep_meta['duration_hours']} hours. The network-wide episode-hour fraction is {ep_meta.get('episode_hour_fraction', 0)*100:.1f}\\%.
 
@@ -249,11 +322,21 @@ An earlier version of this study reported that every architecture underperformed
 
 \\subsection{{Limitations}}
 \\begin{{itemize}}
-    \\item Roughly two years of data, so generalisation across years and pollution regimes is untested.
-    \\item Weather is station-measured but the graph's wind direction uses a period mean, discarding gust structure.
-    \\item The wind-aware graph assumes a single prevailing direction per station; real transport is multi-directional.
-    \\item Single-direction, single-hazard forecast; the models do not condition on the previous episode's duration.
-    \\item Graph structures are static; only Graph WaveNet's adaptive variant learns edge weights.
+    \\item Seven years of data, but the test block covers only two winters, so
+    generalisation across pollution regimes is still only partly tested.  The
+    rolling-origin evaluation in Section~\\ref{{sec:expanding}} is our partial
+    answer to this.
+    \\item Weather is measured at each station rather than taken from a
+    reanalysis, so the wind field carries real local structure; but the
+    per-station wind vectors agree only weakly (mean cross-station correlation
+    of the u-component is 0.11), so the period-mean direction used to orient
+    the graph is itself a noisy quantity.
+    \\item The wind-aware graph assumes a single prevailing direction per
+    station; real transport is multi-directional.
+    \\item Single-direction, single-hazard forecast; the models do not
+    condition on the previous episode's duration.
+    \\item Graph structures are static; only Graph WaveNet's adaptive variant
+    learns edge weights.
 \\end{{itemize}}
 
 \\section{{Conclusion}}
