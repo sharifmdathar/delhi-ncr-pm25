@@ -1075,3 +1075,143 @@ The old test suite referenced a dataset that no longer existed and asserted
 nothing.  Replaced with 25 tests that check the invariants the claims rest
 on (see `tests/test_provenance.py`, `tests/test_no_leakage.py`,
 `tests/test_shapes.py`, `tests/test_masks.py`).  All pass.
+
+---
+
+## 2026-10-21 - THE LSO HEADLINE WAS WRONG; TWO DIAGNOSTICS
+
+### 1. The leave-station-out headline collapsed
+We had reported the leave-station-out "both" variant as: the graph is
+essential, a 13.4 ug/m3 improvement, the largest effect in the study.  That
+comparison was against a no-graph model with no information at all
+(R2 = -0.32, worse than predicting the mean) -- a strawman.
+
+The honest comparators are the simplest spatial baselines, which use exactly
+the information the graph has (the other stations' recent observations) and
+need no training:
+
+  * **Network mean (persistence)** -- the network-wide mean PM2.5 at the last
+    input hour, held over the horizon.
+  * **IDW neighbour (persistence)** -- the inverse-distance-weighted mean of
+    the neighbours' last observed values.
+  * **IDW neighbour (seasonal)** -- the same, but each neighbour contributes
+    its value from 24 h before the target, so the diurnal structure carries
+    over too.
+
+`src/data/spatial_baselines.py` implements them; they use no target-hour
+information.
+
+| method | mode=both MAE | R2 |
+|--------|--------------|-----|
+| **IDW neighbour (seasonal)** | **41.24** | **0.506** |
+| Seasonal naive (own history, not blinded) | 41.40 | 0.479 |
+| Ridge (training stations only) | 47.48 | 0.378 |
+| Network mean (persistence) | 47.01 | 0.402 |
+| IDW neighbour (persistence) | 47.65 | 0.376 |
+| Persistence (own history, not blinded) | 50.73 | 0.269 |
+| **stgcn_distance (best graph)** | **53.45** | **0.147** |
+| stgcn_wind_aware | 55.54 | 0.113 |
+| graph_wavenet_distance | 55.45 | 0.042 |
+| stgcn_identity (the strawman) | 69.19 | -0.319 |
+
+Paired bootstrap over test weeks:
+  * stgcn_distance vs IDW neighbour (seasonal): **+14.32**, CI [9.91, 19.14]
+    -- the graph is significantly WORSE
+  * stgcn_distance vs network mean: +8.77, CI [4.62, 13.33] -- worse
+  * stgcn_distance vs IDW neighbour (persistence): +8.14, CI [3.97, 12.78]
+  * IDW neighbour (seasonal) vs network mean: -5.54, CI [-7.10, -4.04]
+  * stgcn_identity (target mode) vs IDW neighbour (seasonal): -5.95,
+    CI [-7.21, -4.80] -- with its own history available the models win
+
+**So the corrected result is the opposite of the one we first wrote down:** for
+a station the model has never seen and whose own history is unavailable, a
+graph neural network does not supply information simple spatial interpolation
+does not already have -- it supplies less of it.  The report now says so
+explicitly, including that we were "about to report" the strawman number.
+
+### 2. Network-mean diagnostic (is the graph just delivering the regional signal?)
+`scripts/train_netmean.py`: a no-graph model with the network-wide mean PM2.5
+as an extra input channel, computed from the dataset's own PM2.5 feature so
+nothing else changes.  Three seeds.
+
+| configuration | MAE |
+|---------------|-----|
+| **no graph + network mean** | **32.60 +- 0.09** |
+| no graph | 32.66 +- 0.16 |
+| STGCN, wind-aware graph | 33.05 +- 0.12 |
+| GraphWaveNet, no graph | 33.44 +- 0.13 |
+| GraphWaveNet, wind-aware graph | 33.77 +- 0.24 |
+
+Paired bootstrap:
+  * network mean vs no graph: **-0.05**, CI [-0.11, -0.00] -- the explicit
+    regional signal is worth nothing
+  * network mean vs STGCN wind-aware: -0.47, CI [-0.80, -0.18] -- better
+  * network mean vs GraphWaveNet no graph: -0.82, CI [-1.03, -0.62] -- better
+
+This rules out the benign explanation.  The graph is not delivering the
+regional signal and being ignored for it: delivering that signal directly is
+worth nothing at all, so the graph's spatial mixing is a pure cost.
+
+### 3. ERA5 claim narrowed
+The ERA5 ablation tests ONE edge construction (hourly,
+wind-direction-weighted, period-mean prevailing direction) against ONE
+alternative wind source.  It shows the null result is not caused by noisy or
+missing local wind.  It does NOT show that wind cannot help: a time-lagged
+advection kernel, a wind field finer than ERA5's 25 km grid, or
+gradient-driven edge weights are different constructions and are not tested.
+The report and README now say exactly that.
+
+### 4. Headline margin per horizon
+Against the best simple baseline at each horizon (the lower of persistence and
+seasonal naive):
+
+| horizon | best model | best simple | its MAE | margin |
+|---------|-----------|-------------|---------|--------|
+| 1h | 15.05 | persistence | 16.55 | 9.0% |
+| 3h | 23.82 | persistence | 31.15 | 23.5% |
+| 6h | 28.53 | seasonal naive | 38.39 | 25.7% |
+| 12h | 31.05 | seasonal naive | 38.58 | 19.5% |
+| 24h | 32.92 | persistence | 38.41 | 14.3% |
+| 48h | 36.39 | seasonal naive | 38.60 | 5.7% |
+| overall | 32.66 | seasonal naive | 38.63 | **15.5%** |
+
+Overall paired difference 6.04 ug/m3, CI [4.84, 7.38].
+
+### 5. Selection bias stated
+The >= 70% coverage filter keeps only well-maintained stations, and outages
+cluster at particular stations and periods and coincide with high-pollution
+episodes, so the observed remainder is not a random sample of the underlying
+process.  Now a limitation in the report and the README.
+
+### 6. Licensing checked properly
+CPCB's own copyright policy (https://cpcb.gov.in/copyright-policy/, updated
+1 Sep 2019) says "any other proposed use of the material is subject to the
+approval of competent authority of CPCB", and the ODbL packaging README notes
+that "some individual contents of the database are under copyright by CPCB".
+We flag the ambiguity in LICENCE.md rather than resolving it in our own
+favour, and keep the practical effect: the repository redistributes no
+measurements, only four small station-metadata tables, offered under the ODbL
+with attribution and regenerable in one command.
+
+### 7. A contaminated checkpoint, caught
+While building the sample dataset, `build_dataset` overwrote the full frozen
+dataset with the 8-station sample (now fixed: `build_dataset(df,
+save_path=...)`).  A training run that started in that window loaded the
+8-station file, so `stgcn_identity_netmean_s456.pt` was trained on the
+sample.  It was detected by a shape mismatch at evaluation and retrained.
+`scripts/evaluate.py` now refuses to evaluate a checkpoint whose station count
+does not match the dataset.
+
+### 8. Git history scanned for secrets
+The whole rewritten history was scanned for API keys, tokens, passwords, CDS
+credentials, OpenAQ keys, bearer tokens and the common key prefixes
+(ghp_/gho_/github_pat_/sk-/AKIA), and for any .env / netrc / credentials /
+.pem file ever added.  **Zero hits** -- nothing to revoke.
+
+### 9. Sample dataset and licensing
+`scripts/make_sample_dataset.py` builds an 8-station, 3-month sample
+(215 KB) through the same cleaning and normalisation as the full build, so a
+reviewer can run the pipeline in minutes instead of downloading 745 MB per
+year.  `--data` was added to `evaluate.py` and `train_all.py` for this.  The
+sample is a Derived Database of the CPCB records, offered under the ODbL
+with attribution, as that licence requires.

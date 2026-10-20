@@ -1,0 +1,18 @@
+{
+  "stations": [
+    "site_103",
+    "site_106",
+    "site_111",
+    "site_117",
+    "site_124",
+    "site_1421",
+    "site_144",
+    "site_153"
+  ],
+  "start": "2024-11-01",
+  "end": "2025-01-31 23:59:59",
+  "train_end": "2024-12-25 23:59:59",
+  "val_end": "2024-12-31 23:59:59",
+  "test_start": "2025-01-01 00:00:00",
+  "licence": "ODbL 1.0 (Derived Database of the CPCB records)"
+}

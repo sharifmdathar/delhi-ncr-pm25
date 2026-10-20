@@ -11,15 +11,23 @@ importantly, **no graph at all beats both** in both architectures
 adaptive adjacency, which is trained end-to-end rather than designed by hand,
 is the **worst** graph of the four (+1.27 µg/m³ vs no graph, CI [0.58, 2.01]).
 
-Two follow-ups pin down *why*. Rebuilding the wind-aware graph with ERA5
-reanalysis instead of the stations' own (noisy, and missing for 9 of 42
-stations) anemometers changes **nothing** — so the null result is not an
-artefact of the wind data. And a leave-station-out experiment shows the graph
-is a poor substitute for a station's own history but a very good substitute
-for having no history at all.
+Two follow-ups pin down *why*, and they change the story rather than confirm it:
+
+- **The graph is not delivering the regional signal.** A no-graph model given
+  the network-wide mean PM2.5 as an extra input feature scores 32.60 against
+  32.66 without it (paired difference 0.05, CI [−0.11, −0.00]) — and is
+  significantly better than every graph model. So handing the model the
+  regional signal for free is worth nothing, and the graph's spatial mixing is
+  a pure cost.
+- **Nor is the null result caused by the noisy local wind.** Rebuilding the
+  wind-aware graph with ERA5 reanalysis instead of the stations' own
+  (noisy, and missing for 9 of 42) anemometers changes nothing. This tests
+  one edge construction, not wind-aware graphs in general.
 
 The differences are statistically clear but small: the largest gap between
-graph structures is ~1.3 µg/m³ on a score of roughly 33, i.e. about 4%.
+graph structures is ~1.3 µg/m³ on a score of roughly 33, i.e. about 4%. The
+headline margin is against the best *simple* baseline — 32.66 against
+seasonal-naive's 38.63, **15.5% better** (paired CI [4.84, 7.38] µg/m³).
 
 Every neural model here does beat two strong baselines, so the comparison is
 meaningful rather than a broken-model artefact.
@@ -122,6 +130,25 @@ does not pay either.
 Diwali is the failure case: fireworks add a sharp anthropogenic spike with no
 precursor in the inputs, so the neural models smooth over it and lose to ridge.
 
+### The headline margin, per horizon
+
+Plain persistence is the hard baseline at 1 hour; seasonal naive is the hard
+one at 24 and 48 hours. The honest comparison at each horizon is against
+whichever of the two is lower:
+
+| horizon | best model | best simple baseline | its MAE | margin |
+|---------|-----------|----------------------|---------|--------|
+| 1h | 15.05 | persistence | 16.55 | 9.0% |
+| 3h | 23.82 | persistence | 31.15 | 23.5% |
+| 6h | 28.53 | seasonal naive | 38.39 | 25.7% |
+| 12h | 31.05 | seasonal naive | 38.58 | 19.5% |
+| 24h | 32.92 | persistence | 38.41 | 14.3% |
+| 48h | 36.39 | seasonal naive | 38.60 | 5.7% |
+| **overall** | **32.66** | **seasonal naive** | **38.63** | **15.5%** |
+
+(Seed-averaged; the 24 h tie goes to persistence by 0.01 µg/m³.) The overall
+margin is 6.04 µg/m³, paired bootstrap CI [4.84, 7.38].
+
 ### Rolling-origin check (is it just the split boundary?)
 
 Train on 2019…Y, validate on Q4 of Y, test on Y+1. The ranking is stable as
@@ -155,42 +182,71 @@ every station and spatially smooth (correlation 0.98) — changing nothing else:
 | GraphWaveNet | wind, ERA5 | 34.01 ± 0.59 |
 
 The two wind sources are indistinguishable (STGCN Δ 0.01, CI [−0.25, 0.29];
-GraphWaveNet Δ 0.21, CI [−0.16, 0.57]). **The wind source does not matter** —
-a complete, physically consistent wind field produces exactly the same
-ranking, and both ERA5 variants remain significantly worse than no graph. The
-null result is not an artefact of the local wind.
+GraphWaveNet Δ 0.21, CI [−0.16, 0.57]).
+
+**What this does and does not show.** The null result is not caused by the
+noisy or missing local wind. It is *not* a claim that wind cannot help: this
+tests one edge construction (an hourly, wind-direction-weighted kernel using a
+period-mean prevailing direction) against one alternative wind source.
+A time-lagged advection kernel, a wind field finer than ERA5's 25 km grid, or
+an edge weight driven by the concentration gradient rather than the direction
+are different constructions and are not tested here.
+
+### Is the graph just delivering the regional signal?
+
+A no-graph model with the **network-wide mean PM2.5** as an extra input
+feature (computed from the dataset's own PM2.5, so nothing else changes):
+
+| configuration | MAE |
+|---------------|-----|
+| STGCN, no graph | 32.66 ± 0.16 |
+| **STGCN, no graph + network mean** | **32.60 ± 0.09** |
+| STGCN, wind-aware graph | 33.05 ± 0.12 |
+| GraphWaveNet, no graph | 33.44 ± 0.13 |
+| GraphWaveNet, wind-aware graph | 33.77 ± 0.24 |
+
+Telling the model the regional signal explicitly is worth **nothing**
+(paired difference 0.05, CI [−0.11, −0.00]) — and that model is significantly
+*better* than every graph model (0.47 better than STGCN with the wind-aware
+graph, CI [0.18, 0.80]).
+
+This rules out the benign reading. The graph is not delivering the regional
+signal and being ignored for it; delivering that signal is worth nothing at
+all, so the graph's spatial mixing is a pure cost.
 
 ### "And when?" — leave-station-out
 
 Ten stations are held out entirely: their targets never enter the training
-loss. Ridge is refitted on the remaining 32 stations, so nothing has seen
-their data.
+loss. Ridge is refitted on the remaining 32 stations. The spatial baselines
+are the honest comparators in the second variant, because they use the same
+information the graph has — the other stations' recent observations — and
+nothing else.
 
-| variant | STGCN no graph | STGCN wind | STGCN dist | GWN no graph | GWN wind | GWN dist | ridge | seasonal naive |
-|---------|----------------|------------|------------|--------------|----------|----------|-------|----------------|
-| targets unseen, own history visible | **35.35** | 35.73 | 35.98 | **35.67** | 36.27 | 36.70 | 47.48 | 41.40 |
-| targets *and* own history unseen | 69.19 | 55.54 | 54.33 | 70.68 | 57.82 | 55.45 | 47.48 | 41.40 |
-
-Two findings, and they pull in opposite directions:
+| variant | STGCN no graph | STGCN wind | STGCN dist | GWN no graph | GWN wind | GWN dist | **IDW neighbours** | network mean | ridge |
+|---------|----------------|------------|------------|--------------|----------|----------|-------------------|--------------|-------|
+| targets unseen, own history visible | **35.35** | 35.73 | 35.98 | **35.67** | 36.27 | 36.70 | 41.24 | 47.01 | 47.48 |
+| targets *and* own history unseen | 69.19 | 55.54 | 54.33 | 70.68 | 57.82 | 55.45 | **41.24** | 47.01 | 47.48 |
 
 - **For an unseen station that still has its own history, the graph still
-  hurts** (0.46–0.84 µ/m³, all intervals excluding zero). But the absolute
-  numbers are good: the no-graph model reaches 35.35 µ/m³ on stations it has
-  never seen, beating a ridge fitted on other stations by 11.8 and seasonal
-  naive by 6.0. These models *do* generalise to new monitors.
-- **With the station's own history removed as well, the graph becomes
-  essential**: the no-graph model has literally nothing to work with
-  (R² = −0.32, worse than predicting the mean) while the graph models reach
-  R² = +0.11 by reading the neighbours — a 13.4 µ/m³ improvement, the
-  largest effect anywhere in this study. But they still lose to the
-  baselines, which were not blinded and so keep using the history the models
-  were denied.
+  hurts** (0.46–0.84 µg/m³, all intervals excluding zero) — but the models
+  *do* generalise to new monitors, beating the best simple spatial baseline
+  by 5.15 and the network-wide mean by 11.50.
+- **With the station's own history removed as well, the graph loses badly.** A
+  two-line inverse-distance-weighted average of the neighbours reaches 41.24
+  (R² = 0.51); the best graph model reaches 53.45 (R² = 0.15). The graph is
+  **14.3 µg/m³ worse**, CI [9.9, 19.1]. The network-wide mean alone (47.01)
+  also beats every graph model.
+
+> We first reported this as "the graph is essential, a 13.4 µg/m³ improvement,
+> the largest effect in the study". That was against a strawman — the only
+> no-graph comparator there was a model with its eyes closed, and the baselines
+> that *did* have access to the station's own history were unbeaten anyway.
+> With honest spatial baselines the sign flips, and the corrected version is
+> in the report.
 
 Read together: the neighbours do not carry as much information about a
-station as that station's own recent observations. A graph is a poor
-substitute for a station's own history — but a very good substitute for
-having no history at all, which is the only situation in which graph
-structure is clearly worth its cost.
+station as that station's own recent observations, and a graph neural network
+mixes them *worse* than an inverse-distance-weighted average does.
 
 Full tables (all horizons, episode analysis, per-station errors) in
 [`RESULTS_SUMMARY.md`](RESULTS_SUMMARY.md).
@@ -199,18 +255,38 @@ Full tables (all horizons, episode analysis, per-station errors) in
 
 ## Quick start
 
+### Five minutes, no download
+
+A tiny sample dataset is included (8 stations, 3 months of December 2024 and
+January 2025, 215 KB) so the pipeline can be run end to end immediately:
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
+python scripts/evaluate.py --split test --data data/sample/sample_dataset.npz
+python scripts/train_all.py --data data/sample/sample_dataset.npz \
+    --models stgcn --graph identity --seeds 42 --epochs 4
+```
+
+The sample is a Derived Database of the CPCB records, offered under the ODbL
+with attribution — see `data/sample/README.md` and `LICENCE.md`.
+
+### The full pipeline
+
+```bash
 # 1. Fetch real CPCB data (2019-2025, 15-min).  The station files also carry
 #    temperature, humidity, wind speed/direction and rainfall measured at the
-#    station, so no reanalysis download is needed.
+#    station, so no reanalysis download is needed.  ~745 MB per year.
 python scripts/fetch_cpcb_years.py --years 2019 2020 2021 2022 2023 2024 2025
 python scripts/prepare_real_data.py pm25 --src data/raw/cpcb_station_csv
 
 # 1b. ERA5 wind for the ERA5-wind ablation (free, no API key, ~5 min)
 python scripts/fetch_era5_wind.py --years 2019 2020 2021 2022 2023 2024 2025
+
+# 1c. Station coordinates (only needed if you want to rebuild the graphs
+#     without the tracked metadata tables; needs a free XKDR key)
+python scripts/fetch_station_coords.py --xkdr_key aqi_...
 
 # 2. Build frozen dataset (fails if any station is below 70% real coverage)
 python scripts/build_dataset.py
@@ -223,6 +299,7 @@ python scripts/train_all.py --models graph_wavenet --graph wind_aware --seeds 42
 python scripts/train_all.py --models stgcn --split_mode expanding --fold fold0
 python scripts/train_all.py --models stgcn --graph wind_aware_era5 --seeds 42
 python scripts/train_all.py --models stgcn --graph identity --holdout_k 10 --holdout_mode both
+python scripts/train_netmean.py --models stgcn --graph identity --seeds 42 123 456
 
 # 4. Evaluate, analyse, write the report
 python scripts/evaluate.py --split test --max_windows 2000
@@ -443,6 +520,15 @@ unobserved. The target's observed coverage is 90.80% (train), 92.32% (val) and
 
 ## Limitations
 
+- **Selection bias.** The modelling set keeps only stations with ≥70% real
+  observation coverage in every split, which drops the poorly-maintained
+  monitors. The results therefore describe a network of *well-maintained*
+  stations, and the coverage of the dropped ones is not random: outages
+  cluster at particular stations and periods, and they coincide with
+  high-pollution episodes, so the observed remainder is not a random sample
+  of the underlying process. All metrics are masked to observed values, which
+  is the best available correction, but it does not remove the selection
+  effect. Generalising to a network with intermittent stations is untested.
 - Seven years of data (2019–2025), but the fixed test block covers only two
   winters, so generalisation across pollution regimes is only partly tested.
   The rolling-origin evaluation (5 folds, test years 2021–2025) is our partial
@@ -452,18 +538,23 @@ unobserved. The target's observed coverage is 90.80% (train), 92.32% (val) and
   (mean cross-station correlation of the u-component is 0.11), so that mean
   direction is itself a noisy estimate — though the ERA5 ablation shows this
   noise is not what decides the result.
+- The ERA5 ablation tests **one** edge construction against **one**
+  alternative wind source. It does not rule out time-lagged advection, finer
+  wind fields, or gradient-driven edge weights.
 - The graph comparison rests on 8 seeds for the two graph architectures, but on
   a single model family and a single hyperparameter setting per configuration.
   Each variant received the same tuning effort, but we did not sweep the
   graph-specific hyperparameters.
 - The leave-station-out experiment uses 10 held-out stations, 2 seeds and 4
   epochs per run (the fixed-split runs use 8 seeds and 8 epochs), because it
-  was time-boxed. It is enough to resolve a 13 µg/m³ effect; it is not enough
+  was time-boxed. It is enough to resolve a 14 µg/m³ effect; it is not enough
   to resolve a 0.4 µg/m³ one with the same confidence.
-- In the leave-station-out "own history also hidden" variant the baselines
-  were not blinded — they keep using the held-out stations' recent values,
-  which the models were denied. The comparison between the models is fair; the
-  comparison against the baselines is deliberately generous to the baselines.
+- In the leave-station-out "own history also hidden" variant, persistence,
+  ridge and seasonal-naive are **not** blinded: they keep using the held-out
+  stations' recent values, which the models were denied. The comparison
+  between the models and the *spatial* baselines (IDW, network mean) is fair,
+  because those also use only the other stations; the comparison against
+  persistence/ridge/seasonal-naive is deliberately generous to the baselines.
 - Static graphs except GraphWaveNet's learned variant.
 - Severe episodes remain 3–5× worse than ordinary conditions for every model.
 - The LSTM Multivariate does not beat the seasonal-naive baseline reliably
@@ -471,8 +562,28 @@ unobserved. The target's observed coverage is 90.80% (train), 92.32% (val) and
 
 ---
 
-## License
+## License and attribution
 
-MIT. Data: CPCB, via the `Vonter/india-cpcb-aqi` releases (CPCB data is
-published under ODbL). The weather variables are the station-measured values
-distributed in the same CPCB files.
+**Code: MIT** ([LICENSE](LICENSE)).
+
+**Data: not redistributed.** No measurements are included in this
+repository — they are fetched by the scripts. Full attribution and the
+licence position are in [LICENCE.md](LICENCE.md) and
+[DATA_CARD.md](DATA_CARD.md). In short:
+
+- PM2.5 and station meteorology: **Central Pollution Control Board (CPCB)**,
+  Ministry of Environment, Forest and Climate Change, Government of India
+  (<https://cpcb.gov.in/>), via the `Vonter/india-cpcb-aqi` release archive,
+  under the **Open Database Licence 1.0**. The station-meteorology variables
+  are the values measured at the stations, distributed in the same CPCB files.
+- ERA5 reanalysis wind (one ablation only): **ERA5 via the Open-Meteo
+  archive API**, under the **Copernicus licence**.
+- Station coordinates: the **XKDR Forum** station registry
+  (<https://airquality.xkdr.org/>).
+
+The four small station-metadata tables that *are* tracked (identifier, city,
+name, coordinates — no measurements) are offered under the ODbL with
+attribution, and are regenerable with one command. CPCB's own website
+copyright policy adds a condition beyond the ODbL grant; we flag that
+ambiguity explicitly in `LICENCE.md` rather than resolving it in our own
+favour.

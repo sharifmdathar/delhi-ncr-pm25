@@ -23,7 +23,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 COORD_CSV = PROJECT_ROOT / "data" / "raw" / "station_coords.csv"
 
 
-def build_dataset(df: pd.DataFrame) -> Dict[str, np.ndarray]:
+def build_dataset(df: pd.DataFrame, save_path: str = None) -> Dict[str, np.ndarray]:
     """Build frozen continuous arrays X_full, y_full, masks, timestamps, coords.
 
     Does NOT materialize windows. Arrays have time as the first dimension:
@@ -127,9 +127,13 @@ def build_dataset(df: pd.DataFrame) -> Dict[str, np.ndarray]:
         "output_hours": OUTPUT_HOURS,
     }
 
-    Path(FROZEN_DATA_PATH).parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(FROZEN_DATA_PATH, **dataset)
-    print(f"Frozen dataset saved: {FROZEN_DATA_PATH}")
+    # Save to the frozen path, unless the caller asked for a different one
+    # (the sample-dataset builder uses this to avoid clobbering the full
+    # dataset).
+    out_path = Path(save_path or FROZEN_DATA_PATH)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(out_path, **dataset)
+    print(f"Frozen dataset saved: {out_path}")
 
     return dataset
 

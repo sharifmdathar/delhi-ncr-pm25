@@ -29,8 +29,18 @@ PAIRS = {
         ("stgcn_wind_aware_s42_lso10_both", "stgcn_identity_s42_lso10_both"),
         ("graph_wavenet_distance_s42_lso10_both", "graph_wavenet_identity_s42_lso10_both"),
         ("graph_wavenet_wind_aware_s42_lso10_both", "graph_wavenet_identity_s42_lso10_both"),
-        ("stgcn_distance_s42_lso10_both", "Ridge (fit on training stations only)"),
-        ("stgcn_distance_s42_lso10_both", "Seasonal naive (24h)"),
+        # the fair comparisons in this mode: every one of these predicts the
+        # held-out station from the OTHER stations only
+        ("stgcn_distance_s42_lso10_both", "IDW neighbour (seasonal)"),
+        ("stgcn_distance_s42_lso10_both", "IDW neighbour (persistence)"),
+        ("stgcn_distance_s42_lso10_both", "Network mean (persistence)"),
+        ("graph_wavenet_distance_s42_lso10_both", "IDW neighbour (seasonal)"),
+        ("IDW neighbour (seasonal)", "Network mean (persistence)"),
+    ],
+    "target": [
+        ("stgcn_distance_s42_lso10_target", "IDW neighbour (seasonal)"),
+        ("stgcn_identity_s42_lso10_target", "IDW neighbour (seasonal)"),
+        ("stgcn_identity_s42_lso10_target", "Network mean (persistence)"),
     ],
 }
 

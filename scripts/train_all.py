@@ -345,6 +345,9 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--patience", type=int, default=8)
     ap.add_argument("--val_windows", type=int, default=400)
+    ap.add_argument("--data", default=None,
+                    help="frozen dataset to train on (default: the full one; "
+                         "use data/sample/sample_dataset.npz for the sample)")
     ap.add_argument("--holdout_k", type=int, default=0,
                     help="leave-station-out: number of stations whose targets are "
                          "held out of training entirely (0 = off)")
@@ -364,7 +367,8 @@ def main():
     print(f"Device: {device}")
     CKPT_DIR.mkdir(parents=True, exist_ok=True)
 
-    ds = load_dataset(str(DATA_PATH))
+    data_path = Path(args.data) if args.data else DATA_PATH
+    ds = load_dataset(str(data_path))
     print(f"Dataset: X={ds['X_full'].shape}, y={ds['y_full'].shape}, "
           f"stations={ds['station_ids'].shape[0]}")
 

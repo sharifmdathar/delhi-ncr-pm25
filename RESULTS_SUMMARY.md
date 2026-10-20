@@ -79,6 +79,10 @@ temporal correlation in the errors.
 | STGCN, wind-aware vs Seasonal naive (24 h) | -5.62 | [-6.89, -4.44] | 1.000 | first is better |
 | GraphWaveNet, wind-aware vs Seasonal naive (24 h) | -4.91 | [-6.12, -3.81] | 1.000 | first is better |
 | LSTM Multivariate vs Seasonal naive (24 h) | -0.59 | [-2.56, 1.69] | 0.719 | not distinguishable |
+| stgcn identity netmean vs STGCN, no graph | -0.05 | [-0.11, -0.00] | 0.982 | first is better |
+| stgcn identity netmean vs STGCN, wind-aware | -0.47 | [-0.80, -0.18] | 0.999 | first is better |
+| stgcn identity netmean vs Seasonal naive (24 h) | -6.09 | [-7.44, -4.89] | 1.000 | first is better |
+| stgcn identity netmean vs GraphWaveNet, no graph | -0.82 | [-1.03, -0.62] | 1.000 | first is better |
 
 ### Where the graph penalty is actually paid: severe episodes
 
@@ -121,6 +125,106 @@ Train on 2019…Y, validate on Q4 of Y, test on Y+1.
 
 The ranking is stable as the boundary moves, so the finding is not an artefact of
 one particular split.
+
+## Where the edge directions come from (ERA5 ablation)
+
+The station wind is noisy (cross-station correlation 0.11) and missing for 9 of
+42 stations, so the wind-aware graph was rebuilt with ERA5 reanalysis —
+complete and smooth (correlation 0.98) — changing nothing else.
+
+| model | edge direction | MAE |
+|---|---|---|
+| STGCN | no graph | 32.66 ± 0.16 |
+| STGCN | wind, station | 33.05 ± 0.12 |
+| STGCN | wind, ERA5 | 33.10 ± 0.21 |
+| STGCN | distance | 33.18 ± 0.15 |
+| GraphWaveNet | no graph | 33.44 ± 0.13 |
+| GraphWaveNet | wind, station | 33.77 ± 0.24 |
+| GraphWaveNet | wind, ERA5 | 34.01 ± 0.59 |
+| GraphWaveNet | distance | 34.60 ± 0.61 |
+
+The two wind sources are indistinguishable (STGCN Δ 0.01, CI [−0.25, 0.29];
+GraphWaveNet Δ 0.21, CI [−0.16, 0.57]), so the null result is **not** caused by
+the noisy local wind. This tests one edge construction against one wind
+source; it is not a claim that wind cannot help.
+
+## Is the graph just delivering the regional signal?
+
+A no-graph model given the network-wide mean PM2.5 as an extra input feature:
+
+| configuration | MAE |
+|---|---|
+| no graph | 32.66 ± 0.16 |
+| **no graph + network mean** | 32.60 ± 0.09 |
+| wind-aware graph | 33.05 ± 0.12 |
+| no graph (GraphWaveNet) | 33.44 ± 0.13 |
+| wind-aware graph (GraphWaveNet) | 33.77 ± 0.24 |
+
+Telling the model the regional signal explicitly is worth nothing (−0.05, CI
+[−0.11, −0.00]) and that model is significantly better than every graph
+model. The graph is not delivering the regional signal; its mixing is a pure
+cost.
+
+## Leave-station-out ("and when?")
+
+Ten stations held out of training entirely; ridge refitted on the other 32.
+The spatial baselines use the same information the graph has and need no
+training.
+
+**Mode both** (held out: site_106, site_107, site_108, site_1422, site_1427, site_1432, site_1434, site_1435, site_1561, site_5024)
+
+| method | MAE | R² |
+|---|---|---|
+| IDW neighbour (seasonal) | 41.24 | 0.506 |
+| Seasonal naive (24h) | 41.40 | 0.479 |
+| Network mean (persistence) | 47.01 | 0.402 |
+| Ridge (fit on training stations only) | 47.48 | 0.378 |
+| IDW neighbour (persistence) | 47.65 | 0.376 |
+| Persistence | 50.73 | 0.269 |
+| stgcn distance s123 lso10 both | 53.45 | 0.147 |
+| graph wavenet distance s123 lso10 both | 53.82 | 0.136 |
+| stgcn distance s42 lso10 both | 55.20 | 0.113 |
+| stgcn wind aware s123 lso10 both | 55.20 | 0.119 |
+| stgcn wind aware s42 lso10 both | 55.88 | 0.107 |
+| graph wavenet distance s42 lso10 both | 57.07 | 0.042 |
+| graph wavenet wind aware s123 lso10 both | 57.09 | 0.036 |
+| graph wavenet wind aware s42 lso10 both | 58.55 | 0.003 |
+| Hour-of-week average | 63.48 | -0.052 |
+| stgcn identity s42 lso10 both | 68.44 | -0.319 |
+| graph wavenet identity s42 lso10 both | 69.78 | -0.366 |
+| stgcn identity s123 lso10 both | 69.95 | -0.372 |
+| graph wavenet identity s123 lso10 both | 71.58 | -0.422 |
+
+**Mode target** (held out: site_106, site_107, site_108, site_1422, site_1427, site_1432, site_1434, site_1435, site_1561, site_5024)
+
+| method | MAE | R² |
+|---|---|---|
+| stgcn identity s123 lso10 target | 35.34 | 0.613 |
+| stgcn identity s42 lso10 target | 35.36 | 0.611 |
+| graph wavenet identity s42 lso10 target | 35.63 | 0.616 |
+| stgcn wind aware s123 lso10 target | 35.68 | 0.601 |
+| graph wavenet identity s123 lso10 target | 35.70 | 0.609 |
+| stgcn wind aware s42 lso10 target | 35.77 | 0.598 |
+| stgcn distance s123 lso10 target | 35.89 | 0.585 |
+| stgcn distance s42 lso10 target | 36.06 | 0.579 |
+| graph wavenet wind aware s42 lso10 target | 36.21 | 0.590 |
+| graph wavenet wind aware s123 lso10 target | 36.33 | 0.604 |
+| graph wavenet distance s42 lso10 target | 36.40 | 0.606 |
+| graph wavenet distance s123 lso10 target | 36.99 | 0.588 |
+| IDW neighbour (seasonal) | 41.24 | 0.506 |
+| Seasonal naive (24h) | 41.40 | 0.479 |
+| Network mean (persistence) | 47.01 | 0.402 |
+| Ridge (fit on training stations only) | 47.48 | 0.378 |
+| IDW neighbour (persistence) | 47.65 | 0.376 |
+| Persistence | 50.73 | 0.269 |
+| Hour-of-week average | 63.48 | -0.052 |
+
+**The corrected result.** In the second variant (own history hidden as well) a
+two-line inverse-distance-weighted average of the neighbours reaches 41.24
+(R² = 0.51) while the best graph model reaches 53.45 (R² = 0.15) — the graph
+is **14.3 µg/m³ worse**, CI [9.9, 19.1]. An earlier version of this summary
+reported the opposite, against a no-graph model that had no information at
+all.
 
 ## Severe episodes
 

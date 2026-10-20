@@ -245,6 +245,14 @@ def model_predictions(ds, ckpt_path, starts, device):
             if mname.endswith("_" + g):
                 mname = mname[: -(len(g) + 1)]
                 break
+    # Guard: the checkpoint must have been trained on the same network as the
+    # dataset we are evaluating.  A mismatch means the checkpoint was trained
+    # against a different frozen dataset (a sample, or a rebuilt full one).
+    if n_stations != ds["X_full"].shape[1]:
+        raise ValueError(
+            f"{Path(ckpt_path).name}: trained on {n_stations} stations but the "
+            f"dataset has {ds['X_full'].shape[1]} -- refusing to evaluate")
+
     model = build_model(mname, cfg, n_stations).to(device)
     model.load_state_dict(ck["state_dict"])
     model.eval()
@@ -260,6 +268,12 @@ def model_predictions(ds, ckpt_path, starts, device):
     holdout_idx = [sids.index(s) for s in holdout_ids if s in sids]
     blind = bool(holdout_idx) and holdout_mode in ("input", "both")
 
+    # the network-mean diagnostic appends an extra input channel
+    net_mean = None
+    if ck.get("network_mean_feature"):
+        from src.data.spatial_baselines import network_mean_channel
+        net_mean = torch.from_numpy(network_mean_channel(ds))
+
     preds, targets, masks = [], [], []
     with torch.no_grad():
         for s in starts:
@@ -267,6 +281,9 @@ def model_predictions(ds, ckpt_path, starts, device):
             m, e = s + 72, s + 72 + 48
             xb = torch.nan_to_num(X[s:m], nan=0.0)
             mb = mask[s:m]
+            if net_mean is not None:
+                nm = net_mean[s:m].view(-1, 1, 1).expand(-1, n_stations, 1)
+                xb = torch.cat([xb, nm], dim=-1)
             if blind:
                 xb = xb.clone()
                 mb = mb.clone()
@@ -301,6 +318,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", nargs="+", default=None)
     ap.add_argument("--split", default="test", choices=["train", "val", "test"])
+    ap.add_argument("--data", default=None,
+                    help="frozen dataset to evaluate (default: the full one; "
+                         "use data/sample/sample_dataset.npz for the sample)")
     ap.add_argument("--split_mode", default="fixed", choices=["fixed", "expanding"])
     ap.add_argument("--fold", default=None)
     ap.add_argument("--ckpt_suffix", default="", help="suffix to match checkpoint names")
@@ -309,7 +329,8 @@ def main():
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    ds = load_dataset(str(DATA_PATH))
+    data_path = Path(args.data) if args.data else DATA_PATH
+    ds = load_dataset(str(data_path))
     norm_mean = float(ds["norm_mean"])
     norm_std = float(ds["norm_std"])
     n_st = ds["X_full"].shape[1]

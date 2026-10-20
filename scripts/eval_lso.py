@@ -37,6 +37,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.data.dataset import load_dataset
 from src.train.metrics import compute_metrics, compute_horizon_metrics
+from src.data.spatial_baselines import spatial_baselines
 from scripts.evaluate import (denorm, persistence_predictions, seasonal_naive_predictions,
                               hour_of_week_predictions, model_predictions,
                               _clean_lags)
@@ -159,6 +160,12 @@ def main():
         add("Hour-of-week average", p, t, m)
         p, t, m = ridge_on_train_stations(ds, starts, ho_idx)
         add("Ridge (fit on training stations only)", p, t, m)
+
+        # the honest spatial comparison: simple predictors that use the same
+        # information the graph has (the other stations' recent observations)
+        sp = spatial_baselines(ds, starts, coords=ds["coords"])
+        for bname, bvals in sp.items():
+            add(bname, bvals, t, m)
 
         # the neural models
         for f in files:

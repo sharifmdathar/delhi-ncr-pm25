@@ -92,6 +92,61 @@ def main():
         boot_rows.append(f"| {a} vs {c} | {b['diff_mae']:+.2f} | "
                          f"[{b['ci95_low']:.2f}, {b['ci95_high']:.2f}] | {b['p_a_better']:.3f} | {verdict} |")
 
+    # ---------------- ERA5 ablation ----------------
+    era5_rows = []
+    for arch, prefix in [("STGCN", "stgcn"), ("GraphWaveNet", "graph_wavenet")]:
+        for gname, label in [("identity", "no graph"),
+                             ("wind_aware", "wind, station"),
+                             ("wind_aware_era5", "wind, ERA5"),
+                             ("distance", "distance")]:
+            key = f"{prefix}_{gname}"
+            if key not in by:
+                continue
+            maes = [r["mae"] for r in by[key]]
+            n = len(maes)
+            mean = sum(maes) / n
+            sd = (sum((m - mean) ** 2 for m in maes) / (n - 1)) ** 0.5 if n > 1 else 0.0
+            era5_rows.append(f"| {arch} | {label} | {mean:.2f} ± {sd:.2f} |")
+    era5_tbl = "\n".join(era5_rows)
+
+    # ---------------- network-mean diagnostic ----------------
+    nm_rows = []
+    for key, label in [("stgcn_identity", "no graph"),
+                       ("stgcn_identity_netmean", "**no graph + network mean**"),
+                       ("stgcn_wind_aware", "wind-aware graph"),
+                       ("graph_wavenet_identity", "no graph (GraphWaveNet)"),
+                       ("graph_wavenet_wind_aware", "wind-aware graph (GraphWaveNet)")]:
+        if key not in by:
+            continue
+        maes = [r["mae"] for r in by[key]]
+        n = len(maes)
+        mean = sum(maes) / n
+        sd = (sum((m - mean) ** 2 for m in maes) / (n - 1)) ** 0.5 if n > 1 else 0.0
+        nm_rows.append(f"| {label} | {mean:.2f} ± {sd:.2f} |")
+    nm_tbl = "\n".join(nm_rows)
+
+    # ---------------- leave-station-out ----------------
+    lso_path = PROJECT_ROOT / "outputs" / "lso_results.json"
+    lso_md = ""
+    if lso_path.exists():
+        lso = json.loads(lso_path.read_text())
+        blocks = []
+        for grp in lso:
+            mode = grp.get("mode", "?")
+            head = (f"**Mode {mode}** (held out: "
+                    + ", ".join(grp.get("holdout_stations", [])) + ")")
+            rows_l = [head, "",
+                      "| method | MAE | R² |", "|---|---|---|"]
+            for r in sorted(grp["rows"], key=lambda r: r["mae"]):
+                nm = r["name"].replace("_", " ")
+                for pref in ("lso stgcn ", "lso graph wavenet "):
+                    if nm.startswith(pref):
+                        nm = "**" + nm[len(pref):] + "**"
+                        break
+                rows_l.append(f"| {nm} | {r['mae']:.2f} | {r['r2']:.3f} |")
+            blocks.append("\n".join(rows_l))
+        lso_md = "\n\n".join(blocks)
+
     # ---------- rolling origin ----------
     exp = json.loads((OUT / "expanding_window.json").read_text())
     roll_rows = []
@@ -210,6 +265,49 @@ Train on 2019…Y, validate on Q4 of Y, test on Y+1.
 
 The ranking is stable as the boundary moves, so the finding is not an artefact of
 one particular split.
+
+## Where the edge directions come from (ERA5 ablation)
+
+The station wind is noisy (cross-station correlation 0.11) and missing for 9 of
+42 stations, so the wind-aware graph was rebuilt with ERA5 reanalysis —
+complete and smooth (correlation 0.98) — changing nothing else.
+
+| model | edge direction | MAE |
+|---|---|---|
+{era5_tbl}
+
+The two wind sources are indistinguishable (STGCN Δ 0.01, CI [−0.25, 0.29];
+GraphWaveNet Δ 0.21, CI [−0.16, 0.57]), so the null result is **not** caused by
+the noisy local wind. This tests one edge construction against one wind
+source; it is not a claim that wind cannot help.
+
+## Is the graph just delivering the regional signal?
+
+A no-graph model given the network-wide mean PM2.5 as an extra input feature:
+
+| configuration | MAE |
+|---|---|
+{nm_tbl}
+
+Telling the model the regional signal explicitly is worth nothing (−0.05, CI
+[−0.11, −0.00]) and that model is significantly better than every graph
+model. The graph is not delivering the regional signal; its mixing is a pure
+cost.
+
+## Leave-station-out ("and when?")
+
+Ten stations held out of training entirely; ridge refitted on the other 32.
+The spatial baselines use the same information the graph has and need no
+training.
+
+{lso_md}
+
+**The corrected result.** In the second variant (own history hidden as well) a
+two-line inverse-distance-weighted average of the neighbours reaches 41.24
+(R² = 0.51) while the best graph model reaches 53.45 (R² = 0.15) — the graph
+is **14.3 µg/m³ worse**, CI [9.9, 19.1]. An earlier version of this summary
+reported the opposite, against a no-graph model that had no information at
+all.
 
 ## Severe episodes
 

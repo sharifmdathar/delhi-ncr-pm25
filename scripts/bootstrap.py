@@ -40,6 +40,10 @@ PAIRS = [
     ("stgcn_wind_aware", "Seasonal naive (24h)"),
     ("graph_wavenet_wind_aware", "Seasonal naive (24h)"),
     ("lstm_multivariate_distance", "Seasonal naive (24h)"),
+    ("stgcn_identity_netmean", "stgcn_identity"),
+    ("stgcn_identity_netmean", "stgcn_wind_aware"),
+    ("stgcn_identity_netmean", "Seasonal naive (24h)"),
+    ("stgcn_identity_netmean", "graph_wavenet_identity"),
 ]
 
 
