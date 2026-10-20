@@ -1,57 +1,68 @@
-"""Test suite for data pipeline integrity - Part 2."""
+"""Tests that the observation mask behaves correctly.
 
+The mask is what separates "the model was wrong" from "there was no reading".
+Every loss and every metric in this study honours it, so it gets its own
+checks.
+"""
 import numpy as np
 import pytest
 from pathlib import Path
 
+DATASET = Path("data/processed/delhi_ncr_pm25_2019_2025.npz")
 
-def test_no_data_leakage_across_splits():
-    """Ensure no train data appears in val/test sets."""
+
+@pytest.fixture(scope="module")
+def ds():
     from src.data.dataset import load_dataset
-    
-    # Load all splits
-    dataset = load_dataset(Path("data/processed/delhi_ncr_pm25_2019_2024.npz"))
-    
-    train = load_dataset(Path("data/processed/delhi_ncr_pm25_2019_2024.npz"))
-    val = load_dataset(Path("data/processed/delhi_ncr_pm25_2019_2024.npz"))
-    test = load_dataset(Path("data/processed/delhi_ncr_pm25_2019_2024.npz"))
-    
-    # Verify chronological ordering
-    assert train is not None and val is not None and test is not None
-    
-    # Check that the splits don't overlap
-    # (This is enforced by time-based splitting)
-    print("No leakage across splits test passed")
+    if not DATASET.exists():
+        pytest.skip(f"{DATASET} not built; run scripts/build_dataset.py")
+    return load_dataset(DATASET)
 
 
-def test_normalization_fit_on_train_only():
-    """Ensure normalization statistics are fit only on training data."""
-    from src.data.dataset import load_dataset
-    
-    dataset = load_dataset(Path("data/processed/delhi_ncr_pm25_2019_2024.npz"))
-    
-    # Check that normalization stats are stored
-    assert "norm_mean" in dataset, "norm_mean not found"
-    assert "norm_std" in dataset, "norm_std not found"
-    
-    # The normalization was fit on training data only
-    # This is verified by construction in dataset.py
-    print("Normalization fit on train only test passed")
+def test_mask_is_binary(ds):
+    assert set(np.unique(ds["mask_y"])) <= {0.0, 1.0}
+    assert set(np.unique(ds["mask_X"])) <= {0.0, 1.0}
 
 
-def test_imputation_not_forward_looking():
-    """Ensure no forward-looking imputation in the dataset."""
-    from src.data.dataset import load_dataset
-    
-    dataset = load_dataset(Path("data/processed/delhi_ncr_pm25_2019_2024.npz"))
-    
-    # The masking mechanism ensures that missing values are masked
-    # and not filled with future values
-    mask_y = dataset["mask_y"]
-    assert mask_y is not None, "mask_y not found"
-    
-    # Check that all observed values are marked as 1
-    # and missing values as 0
-    assert set(np.unique(mask_y)) <= {0, 1}, "Invalid mask values"
-    
-    print("Forward-looking imputation test passed")
+def test_observed_hours_are_a_large_majority(ds):
+    """If the mask were mostly zero the metrics would be computed on scraps."""
+    for split in ("train", "val", "test"):
+        idx = ds[f"split_indices_{split}"]
+        frac = (ds["mask_y"][idx] > 0).mean()
+        assert frac > 0.5, (
+            f"only {frac:.1%} of {split} is observed")
+
+
+def test_mask_agrees_with_the_feature_mask(ds):
+    pm25 = list(ds["feature_names"]).index("pm25_norm")
+    assert np.array_equal(ds["mask_y"] > 0, ds["mask_X"][:, :, pm25] > 0)
+
+
+def test_no_forward_looking_imputation(ds):
+    """A missing hour must stay missing rather than be filled from the future.
+
+    We check this behaviourally: the masked MAE over a window must be
+    computed only on the observed entries, and a filled-in value would show
+    up as a finite target where the mask says the hour was not observed.
+    """
+    y = ds["y_full"]
+    m = ds["mask_y"] > 0
+    assert np.isfinite(y[m]).all()
+    assert np.isnan(y[~m]).all(), (
+        "a masked-out hour carries a value, which means it was imputed")
+
+
+def test_split_observed_fractions_are_reported(ds):
+    """The observed fraction per split must be in the provenance artefact."""
+    path = Path("outputs/provenance.json")
+    if not path.exists():
+        pytest.skip("outputs/provenance.json not generated")
+    import json
+    prov = json.loads(path.read_text())
+    mask = ds["mask_y"] > 0
+    for split in ("train", "val", "test"):
+        idx = ds[f"split_indices_{split}"]
+        expected = float(mask[idx].mean())
+        got = prov["mask_audit"][split]["observed_fraction"]
+        assert abs(expected - got) < 1e-6, (
+            f"{split} observed fraction {got} does not match the dataset {expected}")

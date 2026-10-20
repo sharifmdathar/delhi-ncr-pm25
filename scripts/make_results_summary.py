@@ -25,6 +25,11 @@ DISPLAY = {
     "transformer_distance": "Transformer",
     "Ridge(24 lags)": "Ridge (24 lags)",
     "Persistence": "Persistence",
+    "Seasonal naive (24h)": "Seasonal naive (24 h)",
+    "Hour-of-week average": "Hour-of-week average",
+    "graph_wavenet_learned_adaptive": "GraphWaveNet, learned adaptive",
+    "stgcn_wind_aware_era5": "STGCN, wind-aware (ERA5)",
+    "graph_wavenet_wind_aware_era5": "GraphWaveNet, wind-aware (ERA5)",
 }
 ORDER = list(DISPLAY)
 HS = ["h1", "h3", "h6", "h12", "h24", "h48"]
@@ -65,7 +70,8 @@ def main():
                           ("Wind-aware (directed)", "stgcn_wind_aware", "graph_wavenet_wind_aware"),
                           ("Distance (static)", "stgcn_distance", "graph_wavenet_distance"),
                           ("Correlation (static)", "stgcn_correlation", "graph_wavenet_correlation"),
-                          ("Learned adaptive", "stgcn_learned_adaptive", "graph_wavenet_learned_adaptive")]:
+                          ("Learned adaptive", "stgcn_learned_adaptive", "graph_wavenet_learned_adaptive"),
+                          ("Wind-aware (ERA5 wind)", "stgcn_wind_aware_era5", "graph_wavenet_wind_aware_era5")]:
         cells = []
         for k in (sk, wk):
             if k not in by:

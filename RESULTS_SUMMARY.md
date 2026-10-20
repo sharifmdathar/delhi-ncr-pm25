@@ -36,6 +36,8 @@ comparison is meaningful rather than a broken-model artefact.
 | Transformer | 38.88 ± 1.04 | 66.34 | 0.498 | 16.38 | 26.32 | 31.53 | 34.21 | 38.16 | 42.41 |
 | Ridge (24 lags) | 44.03 | 73.69 | 0.380 | 15.83 | 28.09 | 39.46 | 47.14 | 36.45 | 42.34 |
 | Persistence | 46.79 | 79.01 | 0.288 | 16.55 | 31.15 | 42.78 | 50.09 | 38.41 | 44.74 |
+| Seasonal naive (24 h) | 38.63 | 68.16 | 0.470 | 38.86 | 38.56 | 38.39 | 38.58 | 38.41 | 38.60 |
+| Hour-of-week average | 59.86 | 95.39 | -0.038 | 60.15 | 59.68 | 59.80 | 59.70 | 59.71 | 59.86 |
 
 ## Graph ablation (the research question)
 
@@ -46,6 +48,7 @@ comparison is meaningful rather than a broken-model artefact.
 | Distance (static) | 33.18 ± 0.15 | 34.60 ± 0.61 |
 | Correlation (static) | 33.46 ± 0.43 | 35.43 ± 1.11 |
 | Learned adaptive | - | 34.70 ± 0.47 |
+| Wind-aware (ERA5 wind) | - | - |
 
 A per-seed standard deviation cannot resolve differences this small, so the
 comparison is made with a **paired bootstrap over the 105 ISO weeks of the test
@@ -65,6 +68,11 @@ temporal correlation in the errors.
 | STGCN, no graph vs LSTM Univariate | -0.21 | [-0.36, -0.08] | 0.999 | first is better |
 | STGCN, no graph vs Ridge (24 lags) | -11.27 | [-13.02, -9.65] | 1.000 | first is better |
 | STGCN, no graph vs Persistence | -14.02 | [-16.05, -12.08] | 1.000 | first is better |
+| STGCN, no graph vs Seasonal naive (24 h) | -6.04 | [-7.38, -4.83] | 1.000 | first is better |
+| STGCN, no graph vs Hour-of-week average | -27.95 | [-34.02, -22.28] | 1.000 | first is better |
+| STGCN, wind-aware vs Seasonal naive (24 h) | -5.62 | [-6.91, -4.44] | 1.000 | first is better |
+| GraphWaveNet, wind-aware vs Seasonal naive (24 h) | -4.91 | [-6.11, -3.81] | 1.000 | first is better |
+| LSTM Multivariate vs Seasonal naive (24 h) | -0.59 | [-2.58, 1.69] | 0.716 | not distinguishable |
 
 ### Where the graph penalty is actually paid: severe episodes
 

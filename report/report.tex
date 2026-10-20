@@ -317,6 +317,31 @@ graph wavenet distance & 34.96 & 33.59  \\
 \end{tabular}
 \end{table}
 
+\subsection{Is the null result caused by the noisy local wind?}
+The station wind field has two problems: nine of the 42 stations report no wind at all, and where it is reported the per-station vectors agree only weakly (mean cross-station correlation of the u-component is 0.11).  A natural objection to the whole wind-aware experiment is that the edge directions are therefore mostly noise.  ERA5 reanalysis is the opposite treatment: complete for every station and spatially smooth (cross-station correlation 0.98), at the cost of a coarse grid that flattens the field across Delhi.  Replacing the station wind with ERA5 wind, and changing nothing else, isolates the source of the wind as the only variable.
+
+\begin{table}[htbp]
+\centering
+\caption{Where the edge directions come from.  Only the source of the wind changes; the construction, the training and the evaluation are identical.}
+\begin{tabular}{llrrr}
+\hline
+model & edge direction & MAE & RMSE & $R^2$  \\
+\hline
+STGCN & no graph & 32.66 $\pm$ 0.16 & 57.29 & 0.626  \\
+STGCN & wind, station & 33.05 $\pm$ 0.12 & 58.06 & 0.615  \\
+STGCN & distance & 33.18 $\pm$ 0.15 & 58.49 & 0.610  \\
+GraphWaveNet & no graph & 33.44 $\pm$ 0.13 & 58.20 & 0.614  \\
+GraphWaveNet & wind, station & 33.77 $\pm$ 0.24 & 59.10 & 0.601  \\
+GraphWaveNet & distance & 34.60 $\pm$ 0.61 & 59.97 & 0.589  \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Can a graph help a station the model has never seen?}
+Everything above asks about stations the models trained on.  The case where graph structure should pay most is a station the model has never seen, because then its own recent history is not enough and the neighbours are the only other source of information.  We hold out ten stations entirely: their targets never enter the training loss, and in the second variant their own 72-hour input history is hidden as well, so that only their neighbours can inform the prediction.  Ridge is refitted on the training stations only, so no method has seen the held-out stations' data.
+
+
+
 \subsection{Severe episodes}
 Episodes are sustained periods with PM2.5 above 150 $\mu$g/m$^3$ for at least 6 hours. The network-wide episode-hour fraction is 15.6\%.
 

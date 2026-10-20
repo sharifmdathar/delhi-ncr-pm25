@@ -81,6 +81,7 @@ def main():
     ap.add_argument("--boot", default="outputs/bootstrap.json")
     ap.add_argument("--expanding", default="outputs/expanding_window.json")
     ap.add_argument("--provenance", default="outputs/provenance.json")
+    ap.add_argument("--lso", default="outputs/lso_results.json")
     ap.add_argument("--cases", default="outputs/case_studies.json")
     ap.add_argument("--spatial", default="outputs/spatial_analysis.json")
     ap.add_argument("--adjacency", default="outputs/adjacency_introspection.json")
@@ -105,6 +106,11 @@ def main():
     exp_path = Path(args.expanding)
     if exp_path.exists():
         exp = json.loads(exp_path.read_text())
+
+    lso = []
+    lso_path = Path(args.lso)
+    if lso_path.exists():
+        lso = json.loads(lso_path.read_text())
 
     prov = {}
     prov_path = Path(args.provenance)
@@ -195,6 +201,7 @@ def main():
     graph_rows = []
     for gname, label in [("identity", "No graph"),
                          ("wind_aware", "Wind-aware (directed)"),
+                         ("wind_aware_era5", "Wind-aware (ERA5 wind)"),
                          ("distance", "Distance (static)"),
                          ("correlation", "Correlation (static)"),
                          ("learned_adaptive", "Learned adaptive")]:
@@ -288,6 +295,61 @@ def main():
             "configuration & " + str(nw) + " stations with wind & "
             + str(nt - nw) + " without " + ROW_END + "\n\\midrule\n"
             + "\n".join(rows_wc) + "\n\\bottomrule\n"
+            "\\end{tabular}\n\\end{table}")
+
+    # ---- ERA5-wind ablation table -----------------------------------------
+    era5_tbl = ""
+    _era5_keys = [("stgcn_identity", "no graph"),
+                  ("stgcn_wind_aware", "wind, station"),
+                  ("stgcn_wind_aware_era5", "wind, ERA5"),
+                  ("stgcn_distance", "distance"),
+                  ("graph_wavenet_identity", "no graph"),
+                  ("graph_wavenet_wind_aware", "wind, station"),
+                  ("graph_wavenet_wind_aware_era5", "wind, ERA5"),
+                  ("graph_wavenet_distance", "distance")]
+    _era5_rows = []
+    for key, label in _era5_keys:
+        if key in models:
+            v = models[key]
+            sd = f" $\\pm$ {v['mae_std']:.2f}" if v.get("n_seeds", 1) > 1 else ""
+            arch = "STGCN" if key.startswith("stgcn") else "GraphWaveNet"
+            _era5_rows.append(f"{arch} & {label} & {fmt(v['mae'])}{sd} & "
+                              f"{fmt(v['rmse'])} & {fmt(v['r2'], 3)} " + ROW_END)
+    if _era5_rows:
+        era5_tbl = (
+            "\\begin{table}[H]\n\\centering\n"
+            "\\caption{Where the edge directions come from.  Only the source of "
+            "the wind changes; the construction, the training and the evaluation "
+            "are identical.}\n"
+            "\\begin{tabular}{llrrr}\n\\toprule\n"
+            "model & edge direction & MAE & RMSE & $R^2$ " + ROW_END + "\n\\midrule\n"
+            + "\n".join(_era5_rows) + "\n\\bottomrule\n"
+            "\\end{tabular}\n\\end{table}")
+
+    # ---- leave-station-out table ------------------------------------------
+    lso_tbl = ""
+    if lso:
+        blocks = []
+        for grp in lso:
+            mode = grp.get("mode", "?")
+            rows_l = []
+            for r in grp.get("rows", []):
+                rows_l.append(
+                    escape_tex(r["name"]) + " & " + f"{r['mae']:.2f} & "
+                    + f"{r['r2']:.3f} & " + f"{r['h1']:.2f} & " + f"{r['h24']:.2f} & "
+                    + f"{r['h48']:.2f} " + ROW_END)
+            head = ("\\textbf{Mode " + mode + "} --- held out: "
+                    + ", ".join(escape_tex(x) for x in grp.get("holdout_stations", []))
+                    + " " + ROW_END)
+            blocks.append(head + "\n" + "\n".join(rows_l))
+        lso_tbl = (
+            "\\begin{table}[H]\n\\centering\n"
+            "\\caption{Leave-station-out: MAE on the held-out stations only "
+            "($\\mu$g/m$^3$).  The neural models never saw those stations' "
+            "targets; ridge is fitted on the training stations only.}\n"
+            "\\begin{tabular}{lrrrrr}\n\\toprule\n"
+            "configuration & MAE & $R^2$ & 1h & 24h & 48h " + ROW_END + "\n\\midrule\n"
+            + "\n".join(blocks) + "\n\\bottomrule\n"
             "\\end{tabular}\n\\end{table}")
 
     # ---- provenance and mask-audit tables ----------------------------------
@@ -614,7 +676,7 @@ Twenty-one per cent of the stations in this study---nine of forty-two---report n
 
 {wcov_tbl}
 
-\\subsection{{Severe episodes}}
+\\subsection{{Is the null result caused by the noisy local wind?}}\nThe station wind field has two problems: nine of the 42 stations report no wind at all, and where it is reported the per-station vectors agree only weakly (mean cross-station correlation of the u-component is 0.11).  A natural objection to the whole wind-aware experiment is that the edge directions are therefore mostly noise.  ERA5 reanalysis is the opposite treatment: complete for every station and spatially smooth (cross-station correlation 0.98), at the cost of a coarse grid that flattens the field across Delhi.  Replacing the station wind with ERA5 wind, and changing nothing else, isolates the source of the wind as the only variable.\n\n{era5_tbl}\n\n\\subsection{{Can a graph help a station the model has never seen?}}\nEverything above asks about stations the models trained on.  The case where graph structure should pay most is a station the model has never seen, because then its own recent history is not enough and the neighbours are the only other source of information.  We hold out ten stations entirely: their targets never enter the training loss, and in the second variant their own 72-hour input history is hidden as well, so that only their neighbours can inform the prediction.  Ridge is refitted on the training stations only, so no method has seen the held-out stations' data.\n\n{lso_tbl}\n\n\\subsection{{Severe episodes}}
 Episodes are sustained periods with PM2.5 above {ep_meta['threshold_ugm3']:.0f} $\\mu$g/m$^3$ for at least {ep_meta['duration_hours']} hours. The network-wide episode-hour fraction is {ep_meta.get('episode_hour_fraction', 0)*100:.1f}\\%.
 
 \\begin{{table}}[H]

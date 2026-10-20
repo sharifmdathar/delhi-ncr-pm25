@@ -348,6 +348,8 @@ def main():
         name = Path(ck).stem
         if "2019_2024" in name or "2024_2025" in name:
             continue          # stale checkpoints from the previous dataset
+        if "_lso" in name:
+            continue          # leave-station-out models are evaluated separately
         is_fold = "_fold" in name
         if args.split_mode == "expanding" and not is_fold:
             continue          # fixed-split models do not belong to a fold
