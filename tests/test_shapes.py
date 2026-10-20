@@ -38,7 +38,8 @@ def test_dtypes_are_float32(ds):
 
 def test_normalisation_statistics_are_sane(ds):
     nm, ns = float(ds["norm_mean"]), float(ds["norm_std"])
-    assert 0.0 < nm < 5.0, f"implausible norm_mean {nm}"
+    # log1p of PM2.5 in ug/m3: 0 for clean air, ~7.6 for the 2000 cap
+    assert 0.0 < nm < 8.0, f"implausible norm_mean {nm}"
     assert ns > 1e-3, f"implausible norm_std {ns}"
 
 

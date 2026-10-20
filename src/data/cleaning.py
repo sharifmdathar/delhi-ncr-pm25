@@ -41,10 +41,16 @@ class DataCleaner:
     REAL DATA ONLY. No synthetic fallback in the production path.
     """
 
-    def __init__(self, seed: int = 42):
+    def __init__(self, seed: int = 42, stations=None):
         self.seed = seed
         self._rng = np.random.default_rng(seed)
         self.coverage_report = None
+        # Optional station subset.  The sample-dataset builder uses this so
+        # that the coverage filter, the normalisation statistics and the
+        # frozen arrays all describe the same set of stations.  Filtering
+        # after the cleaning would leave the normalisation fitted on a
+        # different set of stations from the one in the dataset.
+        self.stations = list(stations) if stations is not None else None
 
     # ------------------------------------------------------------------
     # Loading
@@ -71,6 +77,11 @@ class DataCleaner:
             frames.append(df)
 
         df = pd.concat(frames, ignore_index=True)
+        if self.stations is not None:
+            keep = set(self.stations)
+            df = df[df["station_id"].isin(keep)].copy()
+            print(f"Restricted to {len(keep)} requested station(s); "
+                  f"{df['station_id'].nunique()} present")
         print(f"Loaded {len(df):,} rows, {df['station_id'].nunique()} stations, "
               f"{df['timestamp'].min()} -> {df['timestamp'].max()}")
         return df

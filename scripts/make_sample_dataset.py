@@ -96,10 +96,11 @@ def main():
             if hasattr(mod, name):
                 setattr(mod, name, val)
     try:
-        cleaner = CL.DataCleaner(seed=42)
+        # Restrict to the sample stations BEFORE cleaning, so the coverage
+        # filter, the normalisation statistics and the frozen arrays all
+        # describe the same eight stations.
+        cleaner = CL.DataCleaner(seed=42, stations=SAMPLE_STATIONS)
         df_clean = cleaner.get_dataframe()
-        # keep only the eight sample stations
-        df_clean = df_clean[df_clean["station_id"].isin(SAMPLE_STATIONS)].copy()
         print(f"\nSample stations after the coverage filter: "
               f"{df_clean['station_id'].nunique()} "
               f"({sorted(df_clean['station_id'].unique())})")
