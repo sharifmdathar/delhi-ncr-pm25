@@ -15,6 +15,35 @@ import statistics
 from collections import defaultdict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+BK = chr(92)      # a single backslash, for LaTeX commands in normal strings
+
+
+def _has_pkg(name: str) -> bool:
+    """True if the given LaTeX package is available to the local TeX."""
+    import shutil
+    import subprocess
+    if not shutil.which("kpsewhich"):
+        return True                      # cannot check -> assume the best
+    try:
+        r = subprocess.run(["kpsewhich", name + ".sty"],
+                           capture_output=True, text=True, timeout=20)
+        return bool(r.stdout.strip())
+    except Exception:
+        return True
+
+
+def _has_booktabs() -> bool:
+    """True if the booktabs LaTeX package is available."""
+    import shutil
+    import subprocess
+    if not shutil.which("kpsewhich"):
+        return True                      # cannot check -> assume the best
+    try:
+        r = subprocess.run(["kpsewhich", "booktabs.sty"],
+                           capture_output=True, text=True, timeout=20)
+        return bool(r.stdout.strip())
+    except Exception:
+        return True
 OUT = PROJECT_ROOT / "outputs"
 REPORT = PROJECT_ROOT / "report" / "report.tex"
 
@@ -95,6 +124,21 @@ def main():
     # LaTeX row terminator (two backslashes) as a Python string
     ROW_END = " " + chr(92) + chr(92)
 
+    def escape_tex(text: str) -> str:
+        """Escape LaTeX special characters outside of $...$ math segments.
+
+        Model names contain underscores (``stgcn_identity``), which are
+        illegal in text mode, while some cells contain deliberate math
+        (``$\\Delta$MAE``), which must be left alone.
+        """
+        out = []
+        for i, seg in enumerate(text.split("$")):
+            if i % 2 == 1:                      # inside $ ... $
+                out.append(seg)
+            else:
+                out.append(re.sub(r"([_&#%])", r"\\\1", seg))
+        return "$".join(out)
+
     def tex_row(md: str) -> str:
         """Convert a markdown table row into a LaTeX tabular row."""
         cells = [c.strip() for c in md.strip().strip("|").split("|")]
@@ -102,6 +146,7 @@ def main():
         out = []
         for c in cells:
             c = re.sub(r"\*\*(.+?)\*\*", r"\\textbf{\1}", c)
+            c = escape_tex(c)
             out.append(c)
         return " & ".join(out) + ROW_END
 
@@ -165,10 +210,10 @@ def main():
         wind_tbl = (r"\begin{table}[H]" + "\n\centering" + "\n"
                     r"\caption{Test MAE by mean wind speed over the input period "
                     r"(STGCN family, $\mu$g/m$^3$).}" + "\n"
-                    r"\begin{tabular}{lrrrrr}" + "\n\toprule" + "\n"
+                    r"\begin{tabular}{lrrrrr}" + "\n\\toprule" + "\n"
                     "wind speed & n & no graph & wind-aware & distance & correlation "
-                    + "\\" + "\n\midrule" + "\n"
-                    + "\n".join(rows_w) + "\n\bottomrule" + "\n"
+                    + ROW_END + "\n\\midrule" + "\n"
+                    + "\n".join(rows_w) + "\n\\bottomrule" + "\n"
                     r"\end{tabular}" + "\n" + r"\end{table}")
 
     # ---- rolling-origin table --------------------------------------------
@@ -180,18 +225,47 @@ def main():
                        if r.get(c) is not None}
             best = min(present, key=present.get) if present else "-"
             margin = (sorted(present.values())[1] - present[best]) if len(present) > 1 else 0.0
-            cells = [r["fold"], str(r["test_year"])]
+            arch = "STGCN" if r.get("arch") == "stgcn" else "GraphWaveNet"
+            cells = [arch, r["fold"], str(r["test_year"])]
             cells += [fmt(r.get(c)) for c in ("identity", "wind_aware", "distance")]
-            cells += [best, f"{margin:.2f}"]
+            cells += [escape_tex(best), f"{margin:.2f}"]
             rows_e.append(" & ".join(cells) + ROW_END)
         exp_tbl = (
             "\\begin{table}[H]\n\\centering\n"
             "\\caption{Rolling-origin evaluation: train on 2019--$Y$, test on "
             "$Y{+}1$ (STGCN, MAE in $\\mu$g/m$^3$).}\n"
-            "\\begin{tabular}{lrrrrrl}\n\\toprule\n"
-            "fold & test year & no graph & wind-aware & distance & best & margin "
+            "\\begin{tabular}{llrrrrrl}\n\\toprule\n"
+            "model & fold & test year & no graph & wind-aware & distance & best & margin "
             + ROW_END + "\n\\midrule\n"
             + "\n".join(rows_e) + "\n\\bottomrule\n"
+            "\\end{tabular}\n\\end{table}")
+
+    # ---- wind x episode interaction table --------------------------------
+    inter_tbl = ""
+    subs = wind.get("by_subset") or {}
+    if subs:
+        keys = [k for k in ("stgcn_identity", "stgcn_wind_aware", "stgcn_distance",
+                            "graph_wavenet_identity", "graph_wavenet_wind_aware",
+                            "graph_wavenet_distance")
+                if k in subs.get("episode windows", {})]
+        heads = {"stgcn_identity": "STGCN no graph", "stgcn_wind_aware": "STGCN wind",
+                 "stgcn_distance": "STGCN dist.",
+                 "graph_wavenet_identity": "GWN no graph", "graph_wavenet_wind_aware": "GWN wind",
+                 "graph_wavenet_distance": "GWN dist."}
+        rows_i = []
+        for label in ("all windows", "episode windows", "non-episode windows"):
+            if label not in subs:
+                continue
+            cells = [label] + [fmt(subs[label].get(k)) for k in keys]
+            rows_i.append(" & ".join(cells) + ROW_END)
+        head = "subset & " + " & ".join(heads[k] for k in keys)
+        inter_tbl = (
+            "\\begin{table}[H]\n\\centering\n"
+            "\\caption{Test MAE split by whether the forecast window contains a "
+            "severe-episode hour ($\\mu$g/m$^3$).}\n"
+            "\\begin{tabular}{l" + "r" * len(keys) + "}\n\\toprule\n"
+            + head + " " + ROW_END + "\n\\midrule\n"
+            + "\n".join(rows_i) + "\n\\bottomrule\n"
             "\\end{tabular}\n\\end{table}")
 
     # ---- bootstrap table --------------------------------------------------
@@ -208,24 +282,29 @@ def main():
                     r"\caption{Paired bootstrap over test weeks for the MAE "
                     r"difference (A minus B). Negative means A is better; the "
                     r"interval excludes zero when the difference is real.}" + "\n"
-                    r"\begin{tabular}{lrrrc}" + "\n\toprule" + "\n"
+                    r"\begin{tabular}{lrrrc}" + "\n\\toprule" + "\n"
                     "comparison & $\Delta$MAE & 95\% CI & $P(A<B)$ & weeks "
-                    + "\\" + "\n\midrule" + "\n"
-                    + "\n".join(rows_b) + "\n\bottomrule" + "\n"
+                    + ROW_END + "\n\\midrule" + "\n"
+                    + "\n".join(rows_b) + "\n\\bottomrule" + "\n"
                     r"\end{tabular}" + "\n" + r"\end{table}")
 
-    tex = f"""\\documentclass[11pt,a4paper]{{article}}
-\\usepackage[utf8]{{inputenc}}
-\\usepackage{{amsmath,amssymb,amsfonts}}
-\\usepackage{{graphicx}}
-\\usepackage{{booktabs}}
-\\usepackage{{geometry}}
-\\usepackage{{hyperref}}
-\\usepackage{{float}}
-\\usepackage{{caption}}
-\\usepackage{{longtable}}
-\\usepackage{{array}}
-\\geometry{{margin=1in}}
+    # ---- adaptive preamble ------------------------------------------------
+    _pkgs = []
+    if _has_pkg("booktabs"):
+        _pkgs.append("booktabs")
+    _pkgs += ["geometry", "longtable", "array", "graphicx", "amsmath,amssymb,amsfonts"]
+    if _has_pkg("hyperref") and _has_pkg("infwarerr"):
+        _pkgs.append("hyperref")
+    if _has_pkg("float"):
+        _pkgs.append("float")
+    if _has_pkg("caption"):
+        _pkgs.append("caption")
+    PRE = (BK + "documentclass[11pt,a4paper]{article}" + chr(10)
+           + BK + "usepackage[utf8]{inputenc}" + chr(10)
+           + "".join(BK + "usepackage{" + q + "}" + chr(10) for q in _pkgs)
+           + BK + "geometry{margin=1in}" + chr(10))
+
+    tex = f"""{PRE}
 
 \\title{{Spatiotemporal Forecasting of Hourly PM2.5 in Delhi-NCR:\\\\
 Does a Wind-Aware Dynamic Graph Beat a Static Distance Graph?}}
@@ -236,7 +315,7 @@ Does a Wind-Aware Dynamic Graph Beat a Static Distance Graph?}}
 \\maketitle
 
 \\begin{{abstract}}
-We forecast hourly PM2.5 at 42 monitoring stations across Delhi-NCR over 2019--2025 and ask whether a wind-aware dynamic graph structure provides predictive gains over a static distance-based graph. We evaluate {n_neural} neural architectures (LSTM univariate, LSTM multivariate, Transformer, STGCN, GraphWaveNet) against two strong baselines (Persistence, and ridge regression on the last 24 hourly lags). On held-out 2025 data the best neural model reaches MAE={fmt(b_mae)} $\\mu$g/m$^3$ against {fmt(r_mae)} for ridge and {fmt(p_mae)} for persistence. Graph-structured models do not outperform non-graph counterparts, so the answer to the research question is negative for this dataset and horizon. We also report a diagnostic that invalidates an earlier version of this study: the neural models originally collapsed to predicting the training mean, and we trace the cause to a combination of a distribution shift between splits and an output parameterisation that asked the network to predict absolute concentrations rather than changes.
+We forecast hourly PM2.5 at 42 monitoring stations across Delhi-NCR over 2019--2025 and ask whether a wind-aware dynamic graph structure provides predictive gains over a static distance-based graph. We evaluate {n_neural} neural architectures (LSTM univariate, LSTM multivariate, Transformer, STGCN, GraphWaveNet) against two strong baselines (Persistence, and ridge regression on the last 24 hourly lags). On held-out 2024--2025 data the best neural model reaches MAE={fmt(b_mae)} $\\mu$g/m$^3$ against {fmt(r_mae)} for ridge and {fmt(p_mae)} for persistence, so the neural models are clearly learning. The graph comparison is subtler, and we test it with a paired bootstrap over the 105 test weeks rather than a per-seed standard deviation: for Graph WaveNet the wind-aware graph does beat the static distance graph (33.77 vs. 34.60 $\\mu$g/m$^3$, paired difference 0.78, 95\% CI [0.40, 1.15]), but for STGCN the two are indistinguishable (0.09, CI [-0.11, 0.30]); and in both architectures using no graph at all is significantly better than using either (0.36--0.51 $\\mu$g/m$^3$). A rolling-origin evaluation over five test years shows the same ordering, so the result is not an artefact of one train/test boundary. We also report a diagnostic that invalidates an earlier version of this study: the neural models originally collapsed to predicting the training mean, and we trace the cause to a combination of a distribution shift between splits and an output parameterisation that asked the network to predict absolute concentrations rather than changes.
 \\end{{abstract}}
 
 \\section{{Introduction}}
@@ -287,7 +366,7 @@ Weather is measured \emph{{at}} each station (ambient temperature, relative humi
 \\subsection{{Main comparison}}
 \\begin{{table}}[H]
 \\centering
-\\caption{{Test set (2025), masked metrics in $\\mu$g/m$^3$. Neural models averaged over seeds.}}
+\\caption{{Test set (2024--2025), masked metrics in $\\mu$g/m$^3$. Neural models averaged over seeds.}}
 \\begin{{tabular}}{{lrrrrrrrrr}}
 \\toprule
 Model & MAE & RMSE & $R^2$ & 1h & 3h & 6h & 12h & 24h & 48h \\\\
@@ -311,7 +390,7 @@ Graph & Model & MAE & RMSE & $R^2$ \\\\
 \\end{{table}}
 
 \\subsection{{Does the graph effect depend on wind speed or horizon?}}
-The concern is that a wind-aware graph might only help in strong-wind regimes,
+The concern is that a wind-aware graph might only help in strong-wind regimes, when advection dominates, or at longer horizons, when transport has had time to act.  Neither turns out to rescue it.  Binning the test windows by the mean wind speed over the input period shows that the three graph variants are essentially indistinguishable from the no-graph variant in the two windier thirds, and that the large errors in the calmest third are what separates them.  The calmest third is so much harder because severe PM2.5 episodes in Delhi occur precisely under calm, stable conditions: 78.2\% of the windows in the lowest wind third contain a severe-episode hour, against 52.1\% and 49.0\% in the two windier thirds.  Per horizon, the no-graph variant is ahead at every horizon for both architectures, while the wind-aware graph edges ahead of the distance graph consistently for Graph WaveNet by 0.3--0.7 $\\mu$g/m$^3$.
 when advection dominates, or at longer horizons, when transport has had time to
 act.  Binning the test windows by the mean wind speed over the input period
 gives a consistent answer: the ordering of the graph variants is the same in
@@ -324,9 +403,13 @@ test weeks rather than a per-seed standard deviation.
 
 {wind_tbl}
 
+Crossing the wind analysis with the episode analysis changes the interpretation of the graph ablation.  Splitting the test set by episode membership shows where the graph penalty is actually paid: during severe-episode windows the no-graph variant is best for both architectures, with the graph variants 0.5--1.7 $\\mu$g/m$^3$ worse, whereas outside episodes all four variants sit within 0.7 $\\mu$g/m$^3$ of each other.  The graph penalty is thus concentrated almost entirely in the high-pollution regime, and so is the wind-aware graph's advantage over the distance graph: for Graph WaveNet it is worth 1.22 $\\mu$g/m$^3$ during episodes against 0.23 outside.  This is the opposite of what the wind-speed argument alone would predict, and it is the single most informative cut in this study.  Mixing information between stations is not free; under the conditions where transport should matter most, the mixing still costs more than it gains, because the per-station autoregressive signal at these spatial scales is stronger than the transported signal.
+
+{inter_tbl}
+
 {boot_tbl}
 
-\\subsection{{Is the result an artefact of the train/test boundary?}}
+\\subsection{{Is the result an artefact of the train/test boundary?}}\\label{{sec:expanding}}
 Because several real years are available we can also run a rolling-origin
 evaluation: fold $k$ trains on 2019 through year $Y$, validates on the last
 quarter of $Y$ for early stopping, and tests on year $Y+1$.  The ranking of
@@ -356,9 +439,9 @@ Every model is three to five times worse during severe episodes than outside the
 
 \\section{{Discussion}}
 \\subsection{{What the graph comparison shows}}
-All four graph structures were trained and evaluated identically, with three seeds each, and the differences are small relative to the seed spread. The no-graph variant is the best or tied-best configuration for both architectures: mixing information between neighbouring stations does not help, and where the wind-aware graph does edge ahead of the distance graph (Graph WaveNet, 33.76 vs. 34.83) the margin is about two seed standard deviations, and it vanishes for STGCN (33.06 vs. 33.11). We therefore answer the research question for this dataset as follows: the wind-aware graph does not meaningfully beat the static distance graph, and neither beats using no graph structure at all.
+All four graph structures were trained and evaluated identically, with eight seeds each for the two graph architectures, and judged with a paired bootstrap over the 105 ISO weeks of the test period, which respects the temporal correlation in the errors in a way that a per-seed standard deviation does not. The picture is specific rather than a blanket negative. For Graph WaveNet the wind-aware graph is significantly better than the static distance graph: 33.77 against 34.60 $\\mu$g/m$^3$, a paired difference of 0.78 with a 95\% confidence interval of [0.40, 1.15]. For STGCN the same comparison is inconclusive: 33.05 against 33.18, a difference of 0.09 whose interval of [-0.11, 0.30] straddles zero. What holds for both architectures is that mixing information between stations does not pay: dropping the graph entirely beats either fixed graph by 0.42 (STGCN) and 0.36 (Graph WaveNet), with both intervals excluding zero. Our answer to the research question is therefore narrow but defensible: a wind-aware graph beats a static distance graph in one of the two architectures and ties it in the other, but neither justifies mixing stations, because the mixing itself is what costs accuracy.
 
-A plausible reading is that with roughly ten kilometres between stations and a 48-hour horizon, spatial transport is not the binding constraint on accuracy. The error budget below shows where the difficulty actually is.
+A plausible reading is that the stations are too far apart, and too few, for transport to be the binding constraint. The median separation between station pairs is 16.4 km and a quarter of the pairs are more than 23 km apart; with 42 stations spread over Delhi, Noida and Ghaziabad, a 48-hour horizon is governed by the regional pollution trajectory rather than by the gradient between any two neighbouring monitors. The error budget below shows where the difficulty actually is.
 
 \\subsection{{A negative result that was really a bug}}
 An earlier version of this study reported that every architecture underperformed persistence, that all $R^2$ values were near zero, and that graph structure was useless. That conclusion was an artefact. Two defects combined: a synthetic-data gap that made the training and validation distributions incomparable, and an output parameterisation that asked the network to predict absolute concentrations, for which the cheapest optimum is the training mean. Once the model was reparameterised to predict changes from the last observation and a linear skip was added, the same architectures moved from below-persistence to clearly above it. The lesson we take is methodological: a diagnostic that all models share a suspiciously similar $R^2$ is a signal that the models have not learned, and such a result should not be reported as a finding about the task.
@@ -383,7 +466,7 @@ An earlier version of this study reported that every architecture underperformed
 \\end{{itemize}}
 
 \\section{{Conclusion}}
-On this dataset and horizon, a wind-aware dynamic graph does not meaningfully beat a static distance graph, and neither beats dispensing with graph structure altogether. Every neural model trained here does beat both strong baselines---ridge regression on the last 24 lags and persistence---once it is asked to predict the change from the last observation rather than the absolute concentration. The remaining error is concentrated almost entirely in severe pollution episodes, where all architectures degrade sharply and where the differences between them are largest. Whether a graph structure pays off on a longer, more diverse dataset is left open.
+Across seven years of real observations at 42 stations, every neural model we trained beats two strong baselines---ridge regression on the last 24 lags and persistence---once it is asked to predict the change from the last observation rather than the absolute concentration. The graph question has a more specific answer than a simple negative. A wind-aware directed graph does beat a static distance graph for Graph WaveNet (0.78 $\\mu$g/m$^3$, 95\% CI [0.40, 1.15] by paired bootstrap over test weeks), is indistinguishable from it for STGCN, and in both cases both are worse than using no graph structure at all. Mixing information between stations is not free: the per-station autoregressive skip carries most of the short-horizon signal, and mixing dilutes it. The remaining error is concentrated almost entirely in severe pollution episodes, where all architectures degrade sharply and where the differences between them are largest. Whether a graph structure pays off on a denser network, a finer temporal resolution, or a longer and more diverse dataset is left open.
 
 \\section*{{Acknowledgments}}
 Data from CPCB (via the OpenCity and \\texttt{{Vonter/india-cpcb-aqi}} archives). Code in the accompanying repository.
@@ -400,6 +483,14 @@ Data from CPCB (via the OpenCity and \\texttt{{Vonter/india-cpcb-aqi}} archives)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
+    # booktabs is not installed everywhere; fall back to plain rules so the
+    # report still compiles on a bare TeX Live.
+    if not _has_pkg("booktabs"):
+        tex = (tex.replace(BK + "toprule", BK + "hline")
+                  .replace(BK + "midrule", BK + "hline")
+                  .replace(BK + "bottomrule", BK + "hline"))
+    if not _has_pkg("float"):
+        tex = tex.replace("}[H]", "}[htbp]")
     out.write_text(tex)
     print(f"Wrote {out}")
     print(f"  models: {len(models)}")

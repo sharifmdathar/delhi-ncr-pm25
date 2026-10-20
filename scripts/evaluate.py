@@ -231,6 +231,11 @@ def main():
         name = Path(ck).stem
         if "2019_2024" in name or "2024_2025" in name:
             continue          # stale checkpoints from the previous dataset
+        is_fold = "_fold" in name
+        if args.split_mode == "expanding" and not is_fold:
+            continue          # fixed-split models do not belong to a fold
+        if args.split_mode == "fixed" and is_fold:
+            continue          # fold models are evaluated in their own fold
         mname = name.split("_s")[0]
         if args.fold and not name.endswith(args.fold):
             continue
@@ -261,14 +266,18 @@ def main():
         per_win[name] = {"num": num.tolist(), "cnt": cnt.tolist(),
                          "num_h": num_h.tolist(), "cnt_h": cnt_h.tolist(),
                          "start_idx": int(starts[0])}
-    _np.savez_compressed("outputs/per_window_errors.npz", **{
+    # Artefact prefix: the fixed split owns the canonical files, while a
+    # rolling-origin fold writes to its own so the two never clobber
+    # each other (the bootstrap and the wind breakdown read these).
+    _pre = "outputs/" if args.fold is None else f"outputs/fold_{args.fold}/"
+    _np.savez_compressed(_pre + "per_window_errors.npz", **{
         k: _np.array([v["num"], v["cnt"]], dtype=_np.float64) for k, v in per_win.items()})
-    _np.savez_compressed("outputs/per_window_horizon_errors.npz", **{
+    _np.savez_compressed(_pre + "per_window_horizon_errors.npz", **{
         k: _np.array([v["num_h"], v["cnt_h"]], dtype=_np.float64) for k, v in per_win.items()})
     # week index for each evaluation window (ISO week, for paired bootstrap)
     _wk = pd.to_datetime(ds["timestamps"][starts.astype(int) + 72], unit="s").isocalendar()
-    _np.save("outputs/window_week.npy", _np.stack([_wk.year.values, _wk.week.values]).astype(_np.int32))
-    print(f"Saved per-window errors for {len(per_win)} models")
+    _np.save(_pre + "window_week.npy", _np.stack([_wk.year.values, _wk.week.values]).astype(_np.int32))
+    print(f"Saved per-window errors for {len(per_win)} models -> {_pre}")
 
     rows.sort(key=lambda r: r["mae"])
     hdr = f"{'model':<44}{'MAE':>8}{'RMSE':>8}{'R2':>8}{'1h':>8}{'3h':>8}{'6h':>8}{'12h':>8}{'24h':>8}{'48h':>8}"

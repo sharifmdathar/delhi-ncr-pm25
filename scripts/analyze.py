@@ -84,6 +84,8 @@ def main():
         name = ck.stem
         if "2019_2024" in name or "2024_2025" in name:
             continue
+        if "_fold" in name:
+            continue          # rolling-origin models are evaluated in their own fold
         if args.models and not any(mm in name for mm in args.models):
             continue
         try:

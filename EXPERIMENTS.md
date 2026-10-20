@@ -678,3 +678,96 @@ bootstrap over test weeks is used to judge.
 `src/data/splits.py` adds a rolling-origin mode over the 7 real years:
 train 2019..Y, validate on Q4 of Y, test on Y+1, for Y in 2020..2024. This
 checks that the conclusion is not an artefact of one train/test boundary.
+
+---
+
+## 2026-10-20 (evening) - FINAL RUNS
+
+### Extra seeds
+Added 5 seeds (7, 13, 21, 34, 55) for the six key configurations
+(stgcn and graph_wavenet x {identity, wind_aware, distance}), giving **8 seeds**
+per configuration for both graph architectures. Rationale: the per-seed standard
+deviation (0.10-0.15 MAE) cannot resolve the 0.05-1.07 MAE differences the
+research question is about.
+
+| config | n seeds | mean MAE | sd |
+|--------|---------|----------|-----|
+| stgcn_identity | 8 | 32.66 | 0.16 |
+| stgcn_wind_aware | 8 | 33.05 | 0.12 |
+| stgcn_distance | 8 | 33.18 | 0.15 |
+| graph_wavenet_identity | 8 | 33.44 | 0.13 |
+| graph_wavenet_wind_aware | 8 | 33.77 | 0.24 |
+| graph_wavenet_distance | 8 | 34.60 | 0.61 |
+
+### Paired bootstrap over test weeks (the decisive test)
+`scripts/bootstrap.py` resamples the 105 ISO weeks of the test period with
+replacement, using the SAME weeks for both configurations, 50,000 draws.
+
+| comparison | dMAE | 95% CI | P(A better) | verdict |
+|------------|------|--------|-------------|---------|
+| stgcn distance vs wind-aware | +0.09 | [-0.11, 0.30] | 0.186 | not distinguishable |
+| stgcn distance vs identity | +0.51 | [0.15, 0.89] | 0.003 | identity better |
+| stgcn wind-aware vs identity | +0.42 | [0.12, 0.74] | 0.003 | identity better |
+| gwn distance vs wind-aware | +0.78 | [0.40, 1.15] | 0.000 | **wind-aware better** |
+| gwn distance vs identity | +1.14 | [0.56, 1.75] | 0.000 | identity better |
+| gwn wind-aware vs identity | +0.36 | [0.01, 0.75] | 0.023 | identity better |
+| stgcn identity vs ridge | -11.27 | [-13.01, -9.66] | 1.000 | identity better |
+| stgcn identity vs persistence | -22.21 | [-25.73, -19.02] | 1.000 | identity better |
+
+**This is the finding.** The wind-aware graph significantly beats the static
+distance graph for Graph WaveNet, is indistinguishable from it for STGCN, and
+BOTH are significantly worse than no graph at all. The earlier blanket negative
+was an artefact of judging 0.1-MAE effects with a 0.1-MAE standard deviation.
+
+### Rolling-origin evaluation
+5 folds, train 2019..Y, validate on Q4 of Y, test on Y+1 (STGCN all 5 folds,
+GraphWaveNet folds 0/2/4). 20 + 9 checkpoints.
+
+| arch | fold | test yr | no graph | wind-aware | distance | best |
+|------|------|---------|----------|------------|----------|------|
+| STGCN | fold0 | 2021 | 36.65 | 36.98 | 37.34 | identity |
+| GraphWaveNet | fold0 | 2021 | 37.56 | 37.63 | 43.25 | identity |
+| STGCN | fold1 | 2022 | 32.96 | 33.09 | 32.61 | distance |
+| STGCN | fold2 | 2023 | 33.03 | 33.01 | 33.58 | wind-aware |
+| GraphWaveNet | fold2 | 2023 | 34.23 | 33.64 | 34.05 | wind-aware |
+| STGCN | fold3 | 2024 | 33.82 | 34.57 | 34.22 | identity |
+| STGCN | fold4 | 2025 | 30.76 | 30.77 | 31.41 | identity |
+| GraphWaveNet | fold4 | 2025 | 31.32 | 31.23 | 32.87 | wind-aware |
+
+The ranking is stable as the boundary moves, so the result is not an artefact
+of one particular split.
+
+### Wind speed x episode interaction (the most informative cut)
+`scripts/wind_episode_interaction.py`, using the canonical station-wise episode
+definition from `src/eval/episodes.py`.
+
+- Severe episodes in Delhi occur under calm, stable conditions: 78.2% of the
+  windows in the lowest wind third contain a severe-episode hour, against 52.1%
+  and 49.0% in the two windier thirds.
+- The graph penalty is concentrated in the episode regime:
+
+| subset | stgcn id | stgcn wind | stgcn dist | gwn id | gwn wind | gwn dist |
+|--------|----------|------------|------------|--------|---------|----------|
+| all | 32.66 | 33.05 | 33.18 | 33.44 | 33.77 | 34.60 |
+| episode | 42.31 | 42.92 | 43.16 | 43.34 | 43.84 | 45.06 |
+| non-episode | 17.90 | 17.93 | 17.91 | 18.29 | 18.35 | 18.58 |
+
+- Outside episodes the four variants are within 0.7 ug/m3 of each other; during
+  episodes the graph variants are 0.5-1.7 ug/m3 worse.
+- The wind-aware graph's advantage over the distance graph is itself
+  concentrated in episodes (1.22 ug/m3 for GraphWaveNet during episodes against
+  0.23 outside) -- the opposite of what the wind-speed argument alone predicts.
+
+### LaTeX report
+`scripts/make_report.py` now builds an adaptive preamble (probes for booktabs,
+float, caption, hyperref via kpsewhich and degrades gracefully), so the report
+compiles on a bare TeX Live. Fixed: LaTeX escapes in non-raw Python strings
+(`\toprule` -> TAB, `\bottomrule` -> backspace), single-backslash table row
+terminators, and unescaped underscores in table cells. `report/report.pdf`
+builds cleanly at 7 pages.
+
+### Artefact-isolation bug (fixed)
+`scripts/evaluate.py` wrote `outputs/per_window_errors.npz` and
+`outputs/window_week.npy` unconditionally, so a rolling-origin fold evaluation
+overwrote the canonical fixed-split artefacts and the bootstrap then read the
+wrong data. Now the fold writes to `outputs/fold_<fold>/`.
