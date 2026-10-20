@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Leave-station-out experiment.
+# Leave-station-out experiment (trimmed to a time box).
 #   mode=target : the station's targets never enter the loss, its own history
 #                 is visible  -> "generalise to an unseen monitor?"
 #   mode=both   : targets AND its own history are hidden
 #                 -> "can the graph substitute for a station's own history?"
+# Four epochs with patience 2 is enough for a relative comparison; the
+# fixed-split runs use eight, but this experiment is about the ranking of
+# the graph variants, not about squeezing the last 0.1 MAE.
 set -u
 cd "$(dirname "$0")/.."
-STGCN="--epochs 8 --patience 3 --val_windows 400 --batch_size 32"
-GWN="--epochs 6 --patience 3 --val_windows 400 --batch_size 32"
+STGCN="--epochs 4 --patience 2 --val_windows 400 --batch_size 32"
+GWN="--epochs 4 --patience 2 --val_windows 400 --batch_size 32"
 
 run() {
   local name="$1"; shift
@@ -15,11 +18,10 @@ run() {
   echo "[$(date +%H:%M:%S)] DONE $name"
 }
 
-# Stream A: STGCN, both modes, four graph types, three seeds
 (
   for mode in target both; do
-    for s in 42 123 456; do
-      for g in identity wind_aware wind_aware_era5 distance; do
+    for s in 42 123; do
+      for g in identity wind_aware distance; do
         run "lso_stgcn_${g}_s${s}_${mode}" --models stgcn --graph "$g" --seeds "$s" \
             --holdout_k 10 --holdout_seed 0 --holdout_mode "$mode" $STGCN
       done
@@ -29,7 +31,6 @@ run() {
 
 sleep 20
 
-# Stream B: GraphWaveNet, both modes, three graph types, two seeds
 (
   for mode in target both; do
     for s in 42 123; do

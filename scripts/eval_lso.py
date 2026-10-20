@@ -129,6 +129,7 @@ def main():
         print(f"\n=== holdout mode={mode}, {len(ho_ids)} stations: {ho_ids} ===")
 
         rows = []
+        per_win = {}
 
         def add(name, p, t, m):
             p = denorm(np.nan_to_num(p, nan=0.0), nm, ns)
@@ -136,6 +137,9 @@ def main():
             sel = (m > 0) & ho_mask[None, None, :]
             if sel.sum() == 0:
                 return
+            # per-window errors over the held-out stations, for the bootstrap
+            err = np.abs(p - t) * sel
+            per_win[name] = (err.sum(axis=(1, 2)), sel.sum(axis=(1, 2)))
             overall = compute_metrics(p, t, sel)
             per_h = compute_horizon_metrics(p, t, sel)
             row = {"name": name, "mae": overall["mae"], "rmse": overall["rmse"],
@@ -166,6 +170,15 @@ def main():
 
         results.append({"mode": mode, "holdout_stations": list(ho_ids),
                         "n_holdout": len(ho_ids), "rows": rows})
+        np.savez_compressed(
+            OUT / f"lso_per_window_{mode}.npz",
+            **{k: np.array(v, dtype=np.float64) for k, v in per_win.items()})
+
+    # week index for the evaluation windows (for the paired bootstrap)
+    import pandas as pd
+    _wk = pd.to_datetime(ds["timestamps"][starts.astype(int) + 72], unit="s").isocalendar()
+    np.save(OUT / "lso_window_week.npy",
+             np.stack([_wk.year.values, _wk.week.values]).astype(np.int32))
 
     (PROJECT_ROOT / args.out).write_text(json.dumps(results, indent=2))
     print(f"\nWrote {args.out}")

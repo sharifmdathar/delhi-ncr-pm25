@@ -957,3 +957,121 @@ affects all models and all baselines identically).
 undefined.  The training path sanitises this (network-mean fallback), so the
 trained models are unaffected, but the graph builder itself should not be
 relied on to sanitise.  Documented as a limitation.
+
+---
+
+## 2026-10-21 - PROVENANCE, NEW BASELINES, ERA5 ABLATION, LEAVE-STATION-OUT
+
+### 1. Provenance and the observation-mask audit
+`scripts/provenance.py` writes `outputs/provenance.json` and
+`outputs/provenance.md`.  It audits the frozen dataset mechanically:
+
+| audit | count |
+|-------|-------|
+| X values present but flagged unobserved | **0** |
+| X values flagged observed but missing | **0** |
+| y values present but flagged unobserved | **0** |
+| y values flagged observed but missing | **0** |
+| verdict | no fabricated values |
+
+The target is never imputed: an hour with no real reading stays NaN and is
+masked out of every loss and every metric.  Observed coverage: train 90.80%,
+val 92.32%, **test 93.52%** (6.48% of the test split is missing and excluded
+from all metrics).
+
+### 2. Two more baselines
+The spec's "hour-of-week historical average" had never been evaluated, and
+the "seasonal naive" baseline was missing.  Both are now implemented and
+evaluated on the same windows and masks as everything else.
+
+| baseline | 1h | 6h | 12h | 24h | 48h | overall | R2 |
+|----------|----|----|-----|-----|-----|---------|----|
+| Persistence | 16.55 | 42.78 | 50.09 | 38.41 | 44.74 | 46.79 | 0.288 |
+| **Seasonal naive (24h)** | 38.86 | 38.39 | 38.58 | 38.41 | **38.60** | **38.63** | 0.470 |
+| Hour-of-week average | 60.15 | 59.80 | 59.70 | 59.71 | 59.86 | 59.86 | -0.038 |
+| Ridge (24 lags) | 15.83 | 39.46 | 47.14 | **36.45** | 42.34 | 44.03 | 0.380 |
+
+Seasonal naive is a much stronger bar at long horizons than plain
+persistence, because of the diurnal cycle.  The best neural model beats it by
+6.04 ug/m3 (CI [4.83, 7.38]), but the **LSTM Multivariate does not beat it
+reliably** (-0.59, CI [-2.58, 1.69]) -- stated in the report and the README.
+
+### 3. ERA5-wind ablation (is the null result caused by the local wind?)
+`scripts/fetch_era5_wind.py` pulls ERA5 hourly wind for the 42 stations from
+the Open-Meteo archive (free, no key, ~5 min).  ERA5 is the opposite
+treatment to the station wind: complete for every station, spatially smooth
+(cross-station correlation 0.98 against 0.11), but on a coarse grid.
+
+| model | edge direction | MAE |
+|-------|----------------|-----|
+| STGCN | no graph | 32.66 +- 0.16 |
+| STGCN | wind, station | 33.05 +- 0.12 |
+| STGCN | wind, ERA5 | 33.10 +- 0.21 |
+| GraphWaveNet | no graph | 33.44 +- 0.13 |
+| GraphWaveNet | wind, station | 33.77 +- 0.24 |
+| GraphWaveNet | wind, ERA5 | 34.01 +- 0.59 |
+
+Paired bootstrap: ERA5 vs station wind  +0.01 [-0.25, 0.29] (STGCN) and
++0.21 [-0.16, 0.57] (GraphWaveNet) -- **indistinguishable**.  Both ERA5
+variants are still significantly worse than no graph (0.43 and 0.58).
+**The wind source does not matter.**  The null result is not an artefact of
+the noisy, partly missing local wind.
+
+### 4. Leave-station-out ("and when?")
+10 of 42 stations held out entirely; their targets never enter the training
+loss.  Ridge is refitted on the remaining 32 stations.  Two variants:
+  target  the station's targets are unseen, its own 72 h history is visible
+  both    targets AND its own history are unseen, so only the neighbours can
+          inform the prediction
+
+| variant | STGCN id | STGCN wind | STGCN dist | GWN id | GWN wind | GWN dist | ridge | seasonal naive |
+|---------|----------|------------|------------|--------|----------|----------|-------|----------------|
+| target | **35.35** | 35.73 | 35.98 | **35.67** | 36.27 | 36.70 | 47.48 | 41.40 |
+| both | 69.19 | 55.54 | 54.33 | 70.68 | 57.82 | 55.45 | 47.48 | 41.40 |
+
+Paired bootstrap over test weeks:
+
+| comparison | dMAE | 95% CI | verdict |
+|------------|------|--------|---------|
+| stgcn wind vs no graph (target) | +0.46 | [-0.00, 0.96] | graph worse |
+| stgcn dist vs no graph (target) | +0.80 | [0.15, 1.49] | graph worse |
+| gwn wind vs no graph (target) | +0.65 | [0.01, 1.34] | graph worse |
+| gwn dist vs no graph (target) | +0.84 | [0.24, 1.45] | graph worse |
+| stgcn id vs ridge (target) | -11.82 | [-13.80, -10.00] | model much better |
+| stgcn id vs seasonal naive (target) | -6.04 | [-7.50, -4.76] | model better |
+| stgcn dist vs no graph (both) | **-13.35** | [-16.95, -9.85] | **graph much better** |
+| stgcn wind vs no graph (both) | -12.66 | [-16.33, -9.06] | graph much better |
+| gwn dist vs no graph (both) | -12.83 | [-16.12, -9.61] | graph much better |
+| stgcn dist vs ridge (both) | +8.45 | [3.82, 13.39] | baseline better |
+| stgcn dist vs seasonal naive (both) | +14.23 | [9.50, 19.54] | baseline better |
+
+Two findings that pull in opposite directions:
+  * For an unseen station that still has its own history, the graph still
+    hurts (0.46-0.84, all significant).  But the models do generalise to new
+    monitors: 35.35 on stations never seen, beating a ridge fitted on other
+    stations by 11.8 and seasonal naive by 6.0.
+  * With the station's own history removed too, the graph becomes essential:
+    the no-graph model has literally nothing (R2 = -0.32, worse than
+    predicting the mean) while the graph models reach R2 = +0.11 by reading
+    the neighbours.  That is a 13.4 ug/m3 improvement, the largest effect
+    anywhere in this study.  But the baselines were NOT blinded -- they keep
+    using the history the models were denied -- and they still win.
+
+Caveat recorded in the report and the README: the baselines were not
+blinded in the "both" variant, so the model-vs-model comparison is fair but
+the model-vs-baseline comparison is deliberately generous to the baselines.
+
+### 5. Repository hygiene
+`data/raw/` held 1.3 GB of CPCB and ERA5 files that had been committed
+before the ignore rules existed (the repository was 1.1 GB).  The CPCB
+records are ODbL and the ERA5 files are under the Copernicus licence; neither
+is ours to redistribute.  The files were removed from the index AND the git
+history was rewritten (filter-branch + gc), leaving a 42 MB repository with
+only the small public station-metadata tables tracked.  A `DATA_CARD.md`
+documents the sources, licences, access terms and known data limitations.
+
+### 6. Tests
+The old test suite referenced a dataset that no longer existed and asserted
+nothing.  Replaced with 25 tests that check the invariants the claims rest
+on (see `tests/test_provenance.py`, `tests/test_no_leakage.py`,
+`tests/test_shapes.py`, `tests/test_masks.py`).  All pass.

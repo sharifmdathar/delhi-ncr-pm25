@@ -10,12 +10,19 @@ importantly, **no graph at all beats both** in both architectures
 (0.36–0.51 µg/m³, both CIs excluding zero) — and Graph WaveNet's *learned*
 adaptive adjacency, which is trained end-to-end rather than designed by hand,
 is the **worst** graph of the four (+1.27 µg/m³ vs no graph, CI [0.58, 2.01]).
-The wind-aware edge over the distance graph is concentrated in severe-episode
-windows (1.22 µg/m³ during episodes against 0.23 outside) — but the same cut
-shows that *all* spatial mixing is a net loss: no-graph is best during
-episodes too, where the graph penalty is 0.5–1.7 µg/m³. Every neural model
-here does beat two strong baselines, so the comparison is meaningful rather
-than a broken-model artefact.
+
+Two follow-ups pin down *why*. Rebuilding the wind-aware graph with ERA5
+reanalysis instead of the stations' own (noisy, and missing for 9 of 42
+stations) anemometers changes **nothing** — so the null result is not an
+artefact of the wind data. And a leave-station-out experiment shows the graph
+is a poor substitute for a station's own history but a very good substitute
+for having no history at all.
+
+The differences are statistically clear but small: the largest gap between
+graph structures is ~1.3 µg/m³ on a score of roughly 33, i.e. about 4%.
+
+Every neural model here does beat two strong baselines, so the comparison is
+meaningful rather than a broken-model artefact.
 
 ---
 
@@ -131,6 +138,60 @@ the boundary moves, so the finding is not an artefact of one split:
 | STGCN | fold4 | 2025 | 30.76 | 30.77 | 31.41 | no graph |
 | GraphWaveNet | fold4 | 2025 | 31.32 | 31.23 | 32.87 | wind-aware |
 
+### Is the null result caused by the noisy local wind?
+
+Nine of 42 stations report no wind at all, and where it is reported the
+per-station vectors agree only weakly (cross-station correlation 0.11). So we
+rebuilt the wind-aware graph with **ERA5 reanalysis** instead — complete for
+every station and spatially smooth (correlation 0.98) — changing nothing else:
+
+| model | edge direction | MAE |
+|-------|----------------|-----|
+| STGCN | no graph | **32.66 ± 0.16** |
+| STGCN | wind, station | 33.05 ± 0.12 |
+| STGCN | wind, ERA5 | 33.10 ± 0.21 |
+| GraphWaveNet | no graph | **33.44 ± 0.13** |
+| GraphWaveNet | wind, station | 33.77 ± 0.24 |
+| GraphWaveNet | wind, ERA5 | 34.01 ± 0.59 |
+
+The two wind sources are indistinguishable (STGCN Δ 0.01, CI [−0.25, 0.29];
+GraphWaveNet Δ 0.21, CI [−0.16, 0.57]). **The wind source does not matter** —
+a complete, physically consistent wind field produces exactly the same
+ranking, and both ERA5 variants remain significantly worse than no graph. The
+null result is not an artefact of the local wind.
+
+### "And when?" — leave-station-out
+
+Ten stations are held out entirely: their targets never enter the training
+loss. Ridge is refitted on the remaining 32 stations, so nothing has seen
+their data.
+
+| variant | STGCN no graph | STGCN wind | STGCN dist | GWN no graph | GWN wind | GWN dist | ridge | seasonal naive |
+|---------|----------------|------------|------------|--------------|----------|----------|-------|----------------|
+| targets unseen, own history visible | **35.35** | 35.73 | 35.98 | **35.67** | 36.27 | 36.70 | 47.48 | 41.40 |
+| targets *and* own history unseen | 69.19 | 55.54 | 54.33 | 70.68 | 57.82 | 55.45 | 47.48 | 41.40 |
+
+Two findings, and they pull in opposite directions:
+
+- **For an unseen station that still has its own history, the graph still
+  hurts** (0.46–0.84 µ/m³, all intervals excluding zero). But the absolute
+  numbers are good: the no-graph model reaches 35.35 µ/m³ on stations it has
+  never seen, beating a ridge fitted on other stations by 11.8 and seasonal
+  naive by 6.0. These models *do* generalise to new monitors.
+- **With the station's own history removed as well, the graph becomes
+  essential**: the no-graph model has literally nothing to work with
+  (R² = −0.32, worse than predicting the mean) while the graph models reach
+  R² = +0.11 by reading the neighbours — a 13.4 µ/m³ improvement, the
+  largest effect anywhere in this study. But they still lose to the
+  baselines, which were not blinded and so keep using the history the models
+  were denied.
+
+Read together: the neighbours do not carry as much information about a
+station as that station's own recent observations. A graph is a poor
+substitute for a station's own history — but a very good substitute for
+having no history at all, which is the only situation in which graph
+structure is clearly worth its cost.
+
 Full tables (all horizons, episode analysis, per-station errors) in
 [`RESULTS_SUMMARY.md`](RESULTS_SUMMARY.md).
 
@@ -148,20 +209,32 @@ pip install -r requirements.txt
 python scripts/fetch_cpcb_years.py --years 2019 2020 2021 2022 2023 2024 2025
 python scripts/prepare_real_data.py pm25 --src data/raw/cpcb_station_csv
 
+# 1b. ERA5 wind for the ERA5-wind ablation (free, no API key, ~5 min)
+python scripts/fetch_era5_wind.py --years 2019 2020 2021 2022 2023 2024 2025
+
 # 2. Build frozen dataset (fails if any station is below 70% real coverage)
 python scripts/build_dataset.py
 
 # 3. Train (--graph selects the adjacency; --split_mode expanding runs a
-#    rolling-origin fold instead of the fixed split)
+#    rolling-origin fold instead of the fixed split; --holdout_k runs the
+#    leave-station-out experiment)
 python scripts/train_all.py --models lstm_univariate stgcn --seeds 42 123 456
 python scripts/train_all.py --models graph_wavenet --graph wind_aware --seeds 42 123 456
 python scripts/train_all.py --models stgcn --split_mode expanding --fold fold0
+python scripts/train_all.py --models stgcn --graph wind_aware_era5 --seeds 42
+python scripts/train_all.py --models stgcn --graph identity --holdout_k 10 --holdout_mode both
 
 # 4. Evaluate, analyse, write the report
 python scripts/evaluate.py --split test --max_windows 2000
 python scripts/bootstrap.py --n_boot 50000
 python scripts/analyze.py --max_windows 1200
+python scripts/eval_lso.py                       # leave-station-out
+python scripts/provenance.py                     # provenance + mask audit
 python scripts/make_report.py
+python scripts/make_results_summary.py
+
+# 5. Checks
+python -m pytest tests/ -q
 ```
 
 ---
@@ -377,13 +450,24 @@ unobserved. The target's observed coverage is 90.80% (train), 92.32% (val) and
 - The wind-aware graph uses a period-mean prevailing direction and assumes a
   single direction per station. The per-station wind vectors agree only weakly
   (mean cross-station correlation of the u-component is 0.11), so that mean
-  direction is itself a noisy estimate.
+  direction is itself a noisy estimate — though the ERA5 ablation shows this
+  noise is not what decides the result.
 - The graph comparison rests on 8 seeds for the two graph architectures, but on
   a single model family and a single hyperparameter setting per configuration.
   Each variant received the same tuning effort, but we did not sweep the
   graph-specific hyperparameters.
+- The leave-station-out experiment uses 10 held-out stations, 2 seeds and 4
+  epochs per run (the fixed-split runs use 8 seeds and 8 epochs), because it
+  was time-boxed. It is enough to resolve a 13 µg/m³ effect; it is not enough
+  to resolve a 0.4 µg/m³ one with the same confidence.
+- In the leave-station-out "own history also hidden" variant the baselines
+  were not blinded — they keep using the held-out stations' recent values,
+  which the models were denied. The comparison between the models is fair; the
+  comparison against the baselines is deliberately generous to the baselines.
 - Static graphs except GraphWaveNet's learned variant.
 - Severe episodes remain 3–5× worse than ordinary conditions for every model.
+- The LSTM Multivariate does not beat the seasonal-naive baseline reliably
+  (−0.59 µg/m³, CI [−2.58, 1.69]).
 
 ---
 

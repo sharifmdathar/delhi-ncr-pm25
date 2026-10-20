@@ -82,6 +82,7 @@ def main():
     ap.add_argument("--expanding", default="outputs/expanding_window.json")
     ap.add_argument("--provenance", default="outputs/provenance.json")
     ap.add_argument("--lso", default="outputs/lso_results.json")
+    ap.add_argument("--lso_bootstrap", default="outputs/lso_bootstrap.json")
     ap.add_argument("--cases", default="outputs/case_studies.json")
     ap.add_argument("--spatial", default="outputs/spatial_analysis.json")
     ap.add_argument("--adjacency", default="outputs/adjacency_introspection.json")
@@ -106,6 +107,11 @@ def main():
     exp_path = Path(args.expanding)
     if exp_path.exists():
         exp = json.loads(exp_path.read_text())
+
+    lso_boot = []
+    lso_boot_path = Path(args.lso_bootstrap)
+    if lso_boot_path.exists():
+        lso_boot = json.loads(lso_boot_path.read_text())
 
     lso = []
     lso_path = Path(args.lso)
@@ -325,6 +331,26 @@ def main():
             "model & edge direction & MAE & RMSE & $R^2$ " + ROW_END + "\n\\midrule\n"
             + "\n".join(_era5_rows) + "\n\\bottomrule\n"
             "\\end{tabular}\n\\end{table}")
+
+    # ---- leave-station-out bootstrap table ---------------------------------
+    lso_boot_tbl = ""
+    if lso_boot:
+        rows_lb = []
+        for r in lso_boot:
+            a = r["a"].replace("_lso10_", " / ").replace("_", " ")
+            bb = r["b"].replace("_lso10_", " / ").replace("_", " ")
+            ci = f"[{r['ci95_low']:.2f}, {r['ci95_high']:.2f}]"
+            rows_lb.append(f"{escape_tex(a)} vs {escape_tex(bb)} & {r['diff_mae']:+.2f} & "
+                           f"{ci} & {r['p_a_better']:.3f} " + ROW_END)
+        lso_boot_tbl = (
+            "\\begin{table}[H]" + chr(10) + "\\centering" + chr(10)
+            + "\\caption{Leave-station-out, paired bootstrap over test weeks "
+            "(A minus B; negative means A is better).}" + chr(10)
+            + "\\begin{tabular}{lrrc}" + chr(10) + "\\toprule" + chr(10)
+            + "comparison & $\\Delta$MAE & 95\\% CI & $P(A<B)$ " + ROW_END
+            + chr(10) + "\\midrule" + chr(10)
+            + chr(10).join(rows_lb) + chr(10) + "\\bottomrule" + chr(10)
+            + "\\end{tabular}" + chr(10) + "\\end{table}")
 
     # ---- leave-station-out table ------------------------------------------
     lso_tbl = ""
@@ -676,7 +702,7 @@ Twenty-one per cent of the stations in this study---nine of forty-two---report n
 
 {wcov_tbl}
 
-\\subsection{{Is the null result caused by the noisy local wind?}}\nThe station wind field has two problems: nine of the 42 stations report no wind at all, and where it is reported the per-station vectors agree only weakly (mean cross-station correlation of the u-component is 0.11).  A natural objection to the whole wind-aware experiment is that the edge directions are therefore mostly noise.  ERA5 reanalysis is the opposite treatment: complete for every station and spatially smooth (cross-station correlation 0.98), at the cost of a coarse grid that flattens the field across Delhi.  Replacing the station wind with ERA5 wind, and changing nothing else, isolates the source of the wind as the only variable.\n\n{era5_tbl}\n\n\\subsection{{Can a graph help a station the model has never seen?}}\nEverything above asks about stations the models trained on.  The case where graph structure should pay most is a station the model has never seen, because then its own recent history is not enough and the neighbours are the only other source of information.  We hold out ten stations entirely: their targets never enter the training loss, and in the second variant their own 72-hour input history is hidden as well, so that only their neighbours can inform the prediction.  Ridge is refitted on the training stations only, so no method has seen the held-out stations' data.\n\n{lso_tbl}\n\n\\subsection{{Severe episodes}}
+\\subsection{{Is the null result caused by the noisy local wind?}}\nThe station wind field has two problems: nine of the 42 stations report no wind at all, and where it is reported the per-station vectors agree only weakly (mean cross-station correlation of the u-component is 0.11).  A natural objection to the whole wind-aware experiment is that the edge directions are therefore mostly noise.  ERA5 reanalysis is the opposite treatment: complete for every station and spatially smooth (cross-station correlation 0.98), at the cost of a coarse grid that flattens the field across Delhi.  Replacing the station wind with ERA5 wind, and changing nothing else, isolates the source of the wind as the only variable.\n\nThe answer is clear: the wind source does not matter.  For STGCN the two wind sources are indistinguishable (33.10 against 33.05, a paired difference of 0.01 with a 95\\% interval of [-0.25, 0.29]), and for Graph WaveNet the difference is 0.21 with an interval of [-0.16, 0.57], which straddles zero.  Both ERA5 variants remain significantly worse than no graph at all (0.43 and 0.58, intervals excluding zero).  So the disappointing result is not an artefact of the noisy local wind: a complete, smooth, physically consistent wind field produces exactly the same ranking.  Whatever the graph is failing to capture, it is not the transport direction, and the wind-aware edge over the distance graph that we do find for Graph WaveNet survives the substitution unchanged.\n\n{era5_tbl}\n\n\\subsection{{Can a graph help a station the model has never seen?}}\nEverything above asks about stations the models trained on.  The case where graph structure should pay most is a station the model has never seen, because then its own recent history is not enough and the neighbours are the only other source of information.  We hold out ten stations entirely: their targets never enter the training loss, and in the second variant their own 72-hour input history is hidden as well, so that only their neighbours can inform the prediction.  Ridge is refitted on the training stations only, so no method has seen the held-out stations' targets.\n\nTwo things happen.  In the first variant---unseen station, own history still visible---the picture is the same as everywhere else: the no-graph model is best, and both graph variants are significantly worse (0.46 to 0.84 $\\mu$g/m$^3$, paired bootstrap over test weeks, all intervals excluding zero).  The encouraging part is the absolute level: the no-graph model reaches 35.35 $\\mu$g/m$^3$ on stations it has never seen, beating a ridge fitted on the other 32 stations by 11.8 and the seasonal-naive baseline by 6.0.  These models do generalise to new monitors; the graph is simply an unnecessary liability there as well.\n\nIn the second variant---unseen station, own history hidden as well---the graph becomes essential.  The no-graph model has literally nothing to work with for such a station and is worse than predicting the mean ($R^2 = -0.32$), while the graph models reach $R^2 = +0.11$ by reading the neighbours: a 13.4 $\\mu$g/m$^3$ improvement, the largest effect anywhere in this study.  But the graph is not sufficient either.  The baselines were not blinded---they still use the held-out stations' own recent values, which the models were denied---so that comparison is deliberately generous to the baselines, and the baselines still win: a graph-fed model at 53.5 against ridge at 47.5 and seasonal naive at 41.4.  Read carefully, the two variants say the same thing: the neighbours do not carry as much information about a station as that station's own recent observations, so a graph is a poor substitute for a station's own history---but it is a very good substitute for having no history at all, which is the only situation in which graph structure is clearly worth its cost.\n\n{lso_tbl}\n\n{lso_boot_tbl}\n\n\\subsection{{Severe episodes}}
 Episodes are sustained periods with PM2.5 above {ep_meta['threshold_ugm3']:.0f} $\\mu$g/m$^3$ for at least {ep_meta['duration_hours']} hours. The network-wide episode-hour fraction is {ep_meta.get('episode_hour_fraction', 0)*100:.1f}\\%.
 
 \\begin{{table}}[H]

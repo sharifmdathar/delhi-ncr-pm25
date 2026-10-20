@@ -38,6 +38,8 @@ comparison is meaningful rather than a broken-model artefact.
 | Persistence | 46.79 | 79.01 | 0.288 | 16.55 | 31.15 | 42.78 | 50.09 | 38.41 | 44.74 |
 | Seasonal naive (24 h) | 38.63 | 68.16 | 0.470 | 38.86 | 38.56 | 38.39 | 38.58 | 38.41 | 38.60 |
 | Hour-of-week average | 59.86 | 95.39 | -0.038 | 60.15 | 59.68 | 59.80 | 59.70 | 59.71 | 59.86 |
+| STGCN, wind-aware (ERA5) | 33.10 ± 0.21 | 57.73 | 0.620 | 15.32 | 23.64 | 28.31 | 31.26 | 33.61 | 36.78 |
+| GraphWaveNet, wind-aware (ERA5) | 34.01 ± 0.59 | 58.11 | 0.615 | 15.47 | 23.93 | 29.02 | 31.72 | 33.66 | 37.03 |
 
 ## Graph ablation (the research question)
 
@@ -48,7 +50,7 @@ comparison is meaningful rather than a broken-model artefact.
 | Distance (static) | 33.18 ± 0.15 | 34.60 ± 0.61 |
 | Correlation (static) | 33.46 ± 0.43 | 35.43 ± 1.11 |
 | Learned adaptive | - | 34.70 ± 0.47 |
-| Wind-aware (ERA5 wind) | - | - |
+| Wind-aware (ERA5 wind) | 33.10 ± 0.21 | 34.01 ± 0.59 |
 
 A per-seed standard deviation cannot resolve differences this small, so the
 comparison is made with a **paired bootstrap over the 105 ISO weeks of the test
@@ -65,14 +67,18 @@ temporal correlation in the errors.
 | GraphWaveNet, wind-aware vs GraphWaveNet, no graph | +0.36 | [0.01, 0.75] | 0.023 | second is better |
 | GraphWaveNet, learned adaptive vs GraphWaveNet, no graph | +1.27 | [0.58, 2.01] | 0.000 | second is better |
 | GraphWaveNet, learned adaptive vs GraphWaveNet, wind-aware | +0.90 | [0.46, 1.39] | 0.000 | second is better |
-| STGCN, no graph vs LSTM Univariate | -0.21 | [-0.36, -0.08] | 0.999 | first is better |
-| STGCN, no graph vs Ridge (24 lags) | -11.27 | [-13.02, -9.65] | 1.000 | first is better |
+| STGCN, wind-aware (ERA5) vs STGCN, wind-aware | +0.01 | [-0.25, 0.29] | 0.467 | not distinguishable |
+| STGCN, wind-aware (ERA5) vs STGCN, no graph | +0.43 | [0.14, 0.75] | 0.002 | second is better |
+| GraphWaveNet, wind-aware (ERA5) vs GraphWaveNet, wind-aware | +0.21 | [-0.16, 0.57] | 0.127 | not distinguishable |
+| GraphWaveNet, wind-aware (ERA5) vs GraphWaveNet, no graph | +0.58 | [0.19, 0.98] | 0.002 | second is better |
+| STGCN, no graph vs LSTM Univariate | -0.21 | [-0.36, -0.08] | 1.000 | first is better |
+| STGCN, no graph vs Ridge (24 lags) | -11.27 | [-12.98, -9.64] | 1.000 | first is better |
 | STGCN, no graph vs Persistence | -14.02 | [-16.05, -12.08] | 1.000 | first is better |
-| STGCN, no graph vs Seasonal naive (24 h) | -6.04 | [-7.38, -4.83] | 1.000 | first is better |
-| STGCN, no graph vs Hour-of-week average | -27.95 | [-34.02, -22.28] | 1.000 | first is better |
-| STGCN, wind-aware vs Seasonal naive (24 h) | -5.62 | [-6.91, -4.44] | 1.000 | first is better |
-| GraphWaveNet, wind-aware vs Seasonal naive (24 h) | -4.91 | [-6.11, -3.81] | 1.000 | first is better |
-| LSTM Multivariate vs Seasonal naive (24 h) | -0.59 | [-2.58, 1.69] | 0.716 | not distinguishable |
+| STGCN, no graph vs Seasonal naive (24 h) | -6.04 | [-7.38, -4.84] | 1.000 | first is better |
+| STGCN, no graph vs Hour-of-week average | -27.95 | [-33.97, -22.30] | 1.000 | first is better |
+| STGCN, wind-aware vs Seasonal naive (24 h) | -5.62 | [-6.89, -4.44] | 1.000 | first is better |
+| GraphWaveNet, wind-aware vs Seasonal naive (24 h) | -4.91 | [-6.12, -3.81] | 1.000 | first is better |
+| LSTM Multivariate vs Seasonal naive (24 h) | -0.59 | [-2.56, 1.69] | 0.719 | not distinguishable |
 
 ### Where the graph penalty is actually paid: severe episodes
 
