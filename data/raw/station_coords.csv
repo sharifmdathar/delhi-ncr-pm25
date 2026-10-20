@@ -1,0 +1,57 @@
+station_id,state,city,station_name,lat,lon
+site_103,Delhi,Delhi,"CRRI Mathura Road, Delhi - IMD",28.5512005,77.2735737
+site_104,Delhi,Delhi,"Burari Crossing, Delhi - IMD",28.7256504,77.2011573
+site_105,Delhi,Delhi,"North Campus, DU, Delhi - IMD",28.6573814,77.1585447
+site_106,Delhi,Delhi,"IGI Airport (T3), Delhi - IMD",28.5627763,77.1180053
+site_107,Delhi,Delhi,"Pusa, Delhi - IMD",28.639652,77.146275
+site_108,Delhi,Delhi,"Aya Nagar, Delhi - IMD",28.4706914,77.1099364
+site_109,Delhi,Delhi,"Lodhi Road, Delhi - IMD",28.5918245,77.2273074
+site_111,Uttar Pradesh,Noida,"Sector - 62, Noida - IMD",28.6245479,77.3577104
+site_113,Delhi,Delhi,"Shadipur, Delhi - CPCB",28.6514781,77.1473105
+site_114,Delhi,Delhi,"IHBAS, Dilshad Garden, Delhi - CPCB",28.6811736,77.3025234
+site_115,Delhi,Delhi,"NSIT Dwarka, Delhi - CPCB",28.60909,77.0325413
+site_117,Delhi,Delhi,"ITO, Delhi - CPCB",28.628624,77.24106
+site_118,Delhi,Delhi,"DTU, Delhi - CPCB",28.7500499,77.1112615
+site_119,Delhi,Delhi,"Sirifort, Delhi - CPCB",28.5504249,77.2159377
+site_122,Delhi,Delhi,"Mandir Marg, Delhi - DPCC",28.636429,77.201067
+site_124,Delhi,Delhi,"R K Puram, Delhi - DPCC",28.563262,77.186937
+site_125,Delhi,Delhi,"Punjabi Bagh, Delhi - DPCC",28.674045,77.131023
+site_1420,Delhi,Delhi,"Ashok Vihar, Delhi - DPCC",28.695381,77.181665
+site_1421,Delhi,Delhi,"Dr. Karni Singh Shooting Range, Delhi - DPCC",28.498571,77.26484
+site_1422,Delhi,Delhi,"Dwarka-Sector 8, Delhi - DPCC ",28.5710274,77.0719006
+site_1423,Delhi,Delhi,"Jahangirpuri, Delhi - DPCC",28.73282,77.170633
+site_1424,Delhi,Delhi,"Jawaharlal Nehru Stadium, Delhi - DPCC",28.58028,77.233829
+site_1425,Delhi,Delhi,"Major Dhyan Chand National Stadium, Delhi - DPCC",28.611281,77.237738
+site_1426,Delhi,Delhi,"Narela, Delhi - DPCC",28.822836,77.101981
+site_1427,Delhi,Delhi,"Najafgarh, Delhi - DPCC",28.570173,76.933762
+site_1428,Delhi,Delhi,"Okhla Phase-2, Delhi - DPCC",28.530785,77.271255
+site_1429,Delhi,Delhi,"Nehru Nagar, Delhi - DPCC",28.56789,77.250515
+site_1430,Delhi,Delhi,"Rohini, Delhi - DPCC",28.732528,77.11992
+site_1431,Delhi,Delhi,"Patparganj, Delhi - DPCC",28.623763,77.287209
+site_1432,Delhi,Delhi,"Sonia Vihar, Delhi - DPCC",28.710508,77.249485
+site_1434,Delhi,Delhi,"Wazirpur, Delhi - DPCC",28.699793,77.165453
+site_1435,Delhi,Delhi,"Vivek Vihar, Delhi - DPCC",28.672342,77.31526
+site_144,Uttar Pradesh,Ghaziabad,"Vasundhara, Ghaziabad - UPPCB",28.6603346,77.3572563
+site_146,Haryana,Gurugram,"Vikas Sadan, Gurugram - HSPCB",28.4501238,77.0263051
+site_153,Uttar Pradesh,Noida,"Sector - 125, Noida - UPPCB",28.5447608,77.3231257
+site_1560,Delhi,Delhi,"Bawana, Delhi - DPCC",28.7762,77.051074
+site_1561,Delhi,Delhi,"Mundka, Delhi - DPCC",28.684678,77.076574
+site_1562,Delhi,Delhi,"Sri Aurobindo Marg, Delhi - DPCC",28.531346,77.190156
+site_1563,Delhi,Delhi,"Pusa, Delhi - DPCC",28.639652,77.146275
+site_263,Haryana,Faridabad,"Sector- 16A, Faridabad - HSPCB",28.376058,77.315741
+site_301,Delhi,Delhi,"Anand Vihar, Delhi - DPCC",28.647622,77.315809
+site_5024,Delhi,Delhi,"Alipur, Delhi - DPCC",28.815329,77.15301
+site_5025,Haryana,Gurugram,"NISE Gwal Pahari, Gurugram - IMD",28.422681,77.148944
+site_5081,Uttar Pradesh,Ghaziabad,"Sanjay Nagar, Ghaziabad - UPPCB",28.685382,77.453839
+site_5082,Uttar Pradesh,Ghaziabad,"Indirapuram, Ghaziabad - UPPCB",28.646233,77.358075
+site_5083,Uttar Pradesh,Ghaziabad,"Loni, Ghaziabad - UPPCB",28.757294,77.278792
+site_5122,Uttar Pradesh,Noida,"Sector-116, Noida - UPPCB",28.56923,77.393848
+site_5123,Uttar Pradesh,Noida,"Sector-1, Noida - UPPCB",28.5898,77.3101
+site_5340,Haryana,Faridabad,"New Industrial Town, Faridabad - HSPCB",28.39072,77.30059
+site_5341,Haryana,Faridabad,"Sector 30, Faridabad - HSPCB",28.4417,77.3217
+site_5342,Haryana,Faridabad,"Sector 11, Faridabad - HSPCB",28.376058,77.315741
+site_5344,Haryana,Gurugram,"Teri Gram, Gurugram - HSPCB",28.4275,77.1465
+site_5345,Haryana,Gurugram,"Sector-51, Gurugram - HSPCB",28.4227,77.0667
+site_5393,Delhi,Delhi,"Chandni Chowk, Delhi - IITM",28.656756,77.227234
+site_5395,Delhi,Delhi,"Lodhi Road, Delhi - IITM",28.5918245,77.2273074
+site_6060,Delhi,Delhi,"IIT Delhi, Delhi - IITM",,
