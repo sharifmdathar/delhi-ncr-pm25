@@ -4,6 +4,7 @@
 \usepackage{longtable}
 \usepackage{array}
 \usepackage{graphicx}
+\usepackage{tabularx}
 \usepackage{amsmath,amssymb,amsfonts}
 \geometry{margin=1in}
 
@@ -35,23 +36,24 @@ Hourly PM2.5 comes from the CPCB continuous monitoring network, obtained as 15-m
 The record is seven years long, which is long enough to contain four complete winters in the training block and two in the test block, and to support a rolling-origin evaluation. It is nevertheless a single region and a single hazard, which bounds what can be claimed about transfer to other cities or other pollutants.
 
 \subsection{Provenance and the observation mask}
-Table~
-ef{tab:provenance} lists every source.  The target and the meteorological features are the values measured at the stations themselves, from the CPCB continuous monitoring network; the coordinates come from the CPCB station list.  ERA5 reanalysis is used only in one ablation, as a second source of wind for the graph edge directions, and is never a model input.
+Table~\ref{tab:provenance} lists every source.  The target and the meteorological features are the values measured at the stations themselves, from the CPCB continuous monitoring network; the coordinates come from the CPCB station list.  ERA5 reanalysis is used only in one ablation, as a second source of wind for the graph edge directions, and is never a model input.
 
 Because an earlier version of this study used a synthetic fallback, we make the claim mechanically checkable rather than a promise.  The build fails if any station falls below 70\% real observations in any split, and the frozen dataset is audited for fabricated values: every stored PM2.5 value is either backed by a real observation flag or is missing.  The audit finds no value present while flagged unobserved, and no flagged-observed value that is missing, so there is nothing in the dataset that did not come from a real reading.  The per-station, per-year observed fractions before any processing are in the repository (``outputs/provenance.md``).
 
 \begin{table}[htbp]
 \centering
+\small
+\label{tab:provenance}
 \caption{Data sources.  No synthetic data is used anywhere; the build fails if any station falls below the coverage bar in any split.}
-\begin{tabular}{llll}
+\begin{tabularx}{\textwidth}{p{2.8cm} p{3.4cm} X p{2.9cm}}
 \hline
 what & source & accessed via & licence  \\
 \hline
-hourly PM2.5 target + station meteorology & CPCB continuous monitoring, 15-minute records & https://github.com/Vonter/india-cpcb-aqi (release archive) & Open Database Licence (ODbL) as published by CPCB  \\
-ERA5 reanalysis wind (ablation only) & ERA5 via the Open-Meteo archive API & https://archive-api.open-meteo.com/v1/archive & ERA5: Copernicus licence (free, non-commercial)  \\
+hourly PM2.5 target + station meteorology & CPCB continuous monitoring, 15-minute records & \url{https://github.com/Vonter/india-cpcb-aqi} (release archive) & Open Database Licence (ODbL) as published by CPCB  \\
+ERA5 reanalysis wind (ablation only) & ERA5 via the Open-Meteo archive API & \url{https://archive-api.open-meteo.com/v1/archive} & ERA5: Copernicus licence (free, non-commercial)  \\
 station metadata (lat/lon, city) & CPCB station list + XKDR air-quality station registry & data/raw/station\_coords.csv, data/raw/cpcb\_station\_catalog.csv & public metadata  \\
 \hline
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 The target is never imputed.  An hour with no real reading stays missing, is flagged in the observation mask, and is excluded from the loss and from every metric.  The table below gives the resulting coverage: 6.5% of the test split is missing, and the metrics reported throughout are computed on the observed remainder.
@@ -59,7 +61,7 @@ The target is never imputed.  An hour with no real reading stays missing, is fla
 \begin{table}[htbp]
 \centering
 \caption{Observation-mask audit.  The target is never imputed: an hour with no real reading stays missing and is excluded from every loss and every metric, so all reported numbers are computed on observed values only.}
-\begin{tabular}{lrrrrr}
+\begin{tabularx}{\textwidth}{p{1.8cm} p{1.6cm} p{1.9cm} p{1.9cm} p{1.9cm} X}
 \hline
 split & hours & observed & missing & mean PM2.5 & frac $>300$  \\
 \hline
@@ -67,7 +69,7 @@ train & 35,041 & 90.80\% & 9.20\% & 102.0 & 4.82\%  \\
 val & 8,760 & 92.32\% & 7.68\% & 98.0 & 4.23\%  \\
 test & 17,521 & 93.52\% & 6.48\% & 97.5 & 4.15\%  \\
 \hline
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsection{Splits and leakage control}
@@ -76,7 +78,7 @@ Splits are chronological and non-overlapping: train 2019--2022 (34,922 windows),
 \begin{table}[htbp]
 \centering
 \caption{Split statistics (observed hours only).}
-\begin{tabular}{lrrrrr}
+\begin{tabularx}{\textwidth}{p{4.2cm} r r r r X}
 \hline
 Split & mean & std & p50 & p95 & frac$>$300 \\
 \hline
@@ -84,14 +86,14 @@ Train (2019--2022) & 102.0 & 98.1 & 69.0 & 296.6 & 4.82\% \\
 Validation (2023) & 98.0 & 92.2 & 63.0 & 286.6 & 4.23\% \\
 Test (2024--2025) & 97.5 & 93.8 & 65.4 & 283.0 & 4.15\% \\
 \hline
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 The three splits have near-identical distributions, which is essential: the training split contains four full winter episodes, so the models can learn winter dynamics.
 
 \section{Methods}
 \subsection{Baselines}
-\textbf{Persistence} repeats the last observed value.  	extbf{Seasonal naive} repeats the value observed 24 hours before the target, which is a far stronger baseline than plain persistence because Delhi's PM2.5 has a large diurnal cycle.  	extbf{Hour-of-week average} takes, for each station and each hour of the week, the mean observed PM2.5 over the training split; it uses no recent observation at all.  	extbf{Ridge} fits a per-station linear map from the last 24 hourly values to each horizon, on the training split only.  Ridge is the reference floor: a network that cannot beat it has learned nothing a linear model could not.
+\textbf{Persistence} repeats the last observed value.    extbf{Seasonal naive} repeats the value observed 24 hours before the target, which is a far stronger baseline than plain persistence because Delhi's PM2.5 has a large diurnal cycle.    extbf{Hour-of-week average} takes, for each station and each hour of the week, the mean observed PM2.5 over the training split; it uses no recent observation at all.    extbf{Ridge} fits a per-station linear map from the last 24 hourly values to each horizon, on the training split only.  Ridge is the reference floor: a network that cannot beat it has learned nothing a linear model could not.
 
 \subsection{Models}
 LSTM (univariate, shared weights applied per station; multivariate, stations as channels), a temporal Transformer, STGCN (spectral graph convolution + GRU), and Graph WaveNet (dilated causal convolutions with a fixed or learned adjacency).
@@ -109,8 +111,9 @@ Weather is measured \emph{at} each station (ambient temperature, relative humidi
 \subsection{Main comparison}
 \begin{table}[htbp]
 \centering
+\scriptsize
 \caption{Test set (2024--2025), masked metrics in $\mu$g/m$^3$. Neural models averaged over seeds.}
-\begin{tabular}{lrrrrrrrrr}
+\begin{tabularx}{\textwidth}{p{3.6cm} r r r r r r r r X}
 \hline
 Model & MAE & RMSE & $R^2$ & 1h & 3h & 6h & 12h & 24h & 48h \\
 \hline
@@ -134,14 +137,15 @@ Ridge(24 lags) & 44.03 & 73.69 & 0.380 & 15.83 & 28.09 & 39.46 & 47.14 & 36.45 &
 Persistence & 46.79 & 79.01 & 0.288 & 16.55 & 31.15 & 42.78 & 50.09 & 38.41 & 44.74 \\
 \textbf{Hour-of-week average} & \textbf{59.86} & 95.39 & -0.038 & 60.15 & 59.68 & 59.80 & 59.70 & 59.71 & 59.86 \\
 \hline
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsection{Graph ablation}
 \begin{table}[htbp]
 \centering
+\small
 \caption{Graph structures compared under identical training and evaluation.}
-\begin{tabular}{llrrr}
+\begin{tabularx}{\textwidth}{p{3.2cm} p{3.4cm} r r X}
 \hline
 Graph & Model & MAE & RMSE & $R^2$ \\
 \hline
@@ -157,7 +161,7 @@ Correlation (static) & stgcn & 33.46 $\pm$ 0.43 & 58.19 & 0.614 \\
 Correlation (static) & graph\_wavenet & 35.43 $\pm$ 1.11 & 60.82 & 0.578 \\
 Learned adaptive & graph\_wavenet & 34.70 $\pm$ 0.47 & 59.97 & 0.590 \\
 \hline
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsection{Does the graph effect depend on wind speed or horizon?}
@@ -179,7 +183,7 @@ horizon & best model & best simple baseline & its MAE & margin  \\
 24 & 32.92 & Persistence & 38.41 & 14.3\%  \\
 48 & 36.39 & Seasonal naive (24h) & 38.60 & 5.7\%  \\
 \hline
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 Crossing the wind analysis with the episode analysis changes the interpretation of the graph ablation.  Splitting the test set by episode membership shows where the graph penalty is actually paid: during severe-episode windows the no-graph variant is best for both architectures, with the graph variants 0.5--1.7 $\mu$g/m$^3$ worse, whereas outside episodes all four variants sit within 0.7 $\mu$g/m$^3$ of each other.  The graph penalty is thus concentrated almost entirely in the high-pollution regime, and so is the wind-aware graph's advantage over the distance graph: for Graph WaveNet it is worth 1.22 $\mu$g/m$^3$ during episodes against 0.23 outside.  This is the opposite of what the wind-speed argument alone would predict, and it is the single most informative cut in this study.  Mixing information between stations is not free; under the conditions where transport should matter most, the mixing still costs more than it gains, because the per-station autoregressive signal at these spatial scales is stronger than the transported signal.
@@ -187,7 +191,7 @@ Crossing the wind analysis with the episode analysis changes the interpretation 
 \begin{table}[htbp]
 \centering
 \caption{Test MAE split by whether the forecast window contains a severe-episode hour ($\mu$g/m$^3$).}
-\begin{tabular}{lrrrrrr}
+\begin{tabularx}{\textwidth}{p{2.4cm} p{1.9cm} p{1.9cm} p{1.9cm} p{1.9cm} p{1.9cm} X}
 \hline
 subset & STGCN no graph & STGCN wind & STGCN dist. & GWN no graph & GWN wind & GWN dist.  \\
 \hline
@@ -195,13 +199,14 @@ all windows & 32.66 & 33.05 & 33.18 & 33.44 & 33.77 & 34.60 \\
 episode windows & 42.31 & 42.92 & 43.16 & 43.34 & 43.84 & 45.06 \\
 non-episode windows & 17.90 & 17.93 & 17.91 & 18.29 & 18.35 & 18.58 \\
 \hline
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \begin{table}[htbp]
 \centering
+\small
 \caption{Paired bootstrap over test weeks for the MAE difference (A minus B). Negative means A is better; the interval excludes zero when the difference is real.}
-\begin{tabular}{lrrrc}
+\begin{tabularx}{\textwidth}{p{5.8cm} r p{3.0cm} p{1.6cm} X}
 \hline
 comparison & $\Delta$MAE & 95\% CI & $P(A<B)$ & weeks  \\
 \hline
@@ -230,7 +235,7 @@ stgcn identity netmean minus stgcn wind aware & -0.44 & [-0.77, -0.14] & 0.999 &
 stgcn identity netmean minus Seasonal naive (24h) & -6.03 & [-7.41, -4.82] & 1.000 & 105 \\
 stgcn identity netmean minus graph wavenet identity & -0.84 & [-1.05, -0.63] & 1.000 & 105 \\
 \hline
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsection{Is the result an artefact of the train/test boundary?}\label{sec:expanding}
@@ -245,7 +250,7 @@ artefact of one particular split.
 \begin{table}[htbp]
 \centering
 \caption{Rolling-origin evaluation: train on 2019--$Y$, test on $Y{+}1$ (STGCN, MAE in $\mu$g/m$^3$).}
-\begin{tabular}{llrrrrrl}
+\begin{tabularx}{\textwidth}{p{2.0cm} p{1.2cm} p{1.6cm} p{1.6cm} p{1.9cm} p{1.9cm} p{1.0cm} X}
 \hline
 model & fold & test year & no graph & wind-aware & distance & best & margin  \\
 \hline
@@ -258,13 +263,11 @@ STGCN & fold3 & 2024 & 33.82 & 34.57 & 34.22 & identity & 0.39 \\
 STGCN & fold4 & 2025 & 30.76 & 30.77 & 31.41 & identity & 0.01 \\
 GraphWaveNet & fold4 & 2025 & 31.32 & 31.23 & 32.87 & wind\_aware & 0.09 \\
 \hline
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsection{Case studies}
-Three real events from the test period, chosen by construction rather than by inspecting the model's wins: the Diwali fireworks episode of October 2024, the January 2024 winter inversion, and a May 2024 dust episode. Figure~
-ef{fig:cases} shows the network mean through each event; Table~
-ef{tab:cases} gives the errors.
+Three real events from the test period, chosen by construction rather than by inspecting the model's wins: the Diwali fireworks episode of October 2024, the January 2024 winter inversion, and a May 2024 dust episode. Figure~\ref{fig:cases} shows the network mean through each event; Table~\ref{tab:cases} gives the errors.
 
 \begin{figure}[htbp]
 \centering
@@ -293,7 +296,7 @@ The three events behave differently, and the differences are informative. In the
 \centering
 \caption{MAE during three real events in the test period ($\mu$g/m$^3$, network mean over 48-hour forecasts).}
 \label{tab:cases}
-\begin{tabular}{lrrrrrrr}
+\begin{tabularx}{\textwidth}{p{2.4cm} p{2.4cm} r r r p{1.8cm} p{1.8cm} X}
 \hline
 event & start & peak & persistence & ridge & no graph & wind-aware & GWN wind  \\
 \hline
@@ -301,7 +304,7 @@ Diwali 2024 & 2024-10-30 12:00 & 221 & 53.84 & 59.49 & 65.93 & 81.65 & 92.31 \\
 Winter inversion & 2024-01-13 18:00 & 574 & 108.57 & 86.26 & 20.13 & 19.97 & 27.18 \\
 Dust storm & 2024-05-10 16:00 & 162 & 15.48 & 15.62 & 17.84 & 15.46 & 14.46 \\
 \hline
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsection{Spatial error: who pays for the mixing?}
@@ -310,14 +313,14 @@ If graph structure carried information that a station cannot see, the benefit sh
 \begin{table}[htbp]
 \centering
 \caption{The cost of spatial mixing against distance from the network centroid (per-station MAE penalty relative to the no-graph model, $\mu$g/m$^3$).}
-\begin{tabular}{lrrrrrr}
+\begin{tabularx}{\textwidth}{p{2.4cm} p{1.7cm} p{1.7cm} p{1.7cm} p{1.7cm} p{2.2cm} X}
 \hline
 model & wind near & wind far & dist near & dist far & $r$(radius) wind & $r$(radius) dist  \\
 \hline
 STGCN & +0.13 & +0.62 & +0.35 & +0.72 & +0.42 & +0.34  \\
 GraphWaveNet & +0.20 & +0.33 & +1.23 & +1.06 & +0.31 & +0.11  \\
 \hline
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsection{Adjacency introspection}
@@ -331,11 +334,11 @@ A graph ablation says how much a structure is worth; introspection says what it 
 \end{figure}
 
 \subsection{How much of the network actually has wind?}
-Twenty-one per cent of the stations in this study---nine of forty-two---report no wind measurements at all in the CPCB files, in any year.  For those stations the wind-aware graph is built from the network-mean wind direction, which is a placeholder rather than a local measurement.  Splitting the per-station errors by that distinction is informative (Table~
-ef{tab:wcov}): the wind-aware graph is better than the distance graph at both kinds of station, and the penalty that any graph imposes relative to using no graph at all is larger where the wind \emph{is} measured.  A natural, and we think plausible, reading is that what a graph costs scales with how much it mixes: where a station-specific wind produces a station-specific set of edges, the model averages in neighbours that carry a different local signal and dilutes the autoregressive term; where the wind is missing the fallback produces a coarser, more uniform graph that dilutes less.  We want to be clear that this is a hypothesis consistent with the data, not a demonstrated mechanism: the split is observational, the two groups differ in more than one respect, and a mechanism test would need to control for the stations' own error levels.  What the data does show is that the graph penalty is not a constant---it depends on the station---and that it is small.
+Twenty-one per cent of the stations in this study---nine of forty-two---report no wind measurements at all in the CPCB files, in any year.  For those stations the wind-aware graph is built from the network-mean wind direction, which is a placeholder rather than a local measurement.  Splitting the per-station errors by that distinction is informative (Table~\ref{tab:wcov}): the wind-aware graph is better than the distance graph at both kinds of station, and the penalty that any graph imposes relative to using no graph at all is larger where the wind \emph{is} measured.  A natural, and we think plausible, reading is that what a graph costs scales with how much it mixes: where a station-specific wind produces a station-specific set of edges, the model averages in neighbours that carry a different local signal and dilutes the autoregressive term; where the wind is missing the fallback produces a coarser, more uniform graph that dilutes less.  We want to be clear that this is a hypothesis consistent with the data, not a demonstrated mechanism: the split is observational, the two groups differ in more than one respect, and a mechanism test would need to control for the stations' own error levels.  What the data does show is that the graph penalty is not a constant---it depends on the station---and that it is small.
 
 \begin{table}[htbp]
 \centering
+\label{tab:wcov}
 \caption{Per-station MAE split by whether the station reports measured wind at all ($\mu$g/m$^3$).}
 \begin{tabular}{lrr}
 \hline
@@ -413,15 +416,14 @@ So the corrected reading is the opposite of the one we started with.  For a stat
 
 Delhi's PM2.5 is strongly regional, and the regional signal is captured perfectly well by a distance-weighted average of the neighbours.  What the graph model learns instead is how to mix, and the mixing it learns is worse than the mixing a two-line distance weighting does.
 
-That statement needs a caveat, and the caveat is a handicap to the models rather than a weakness of them.  These models were trained to forecast a station \emph{from its own history}, and they were then asked to forecast a station whose own history was removed---a situation they had never practised, while the interpolation baselines have no such dependence because they never use the station's own history at all.  So the defensible claim is the narrow one: \emph{graph models trained for forecasting do not transfer to unseen stations with a missing own history better than an inverse-distance-weighted average of the neighbours}.  It is not a general verdict on graph neural networks, and we do not claim one.  The obvious next experiment is to train with node dropout---hiding a random subset of stations' own history during training, so the held-out condition is one the model has seen---and to repeat this comparison under the main experiment's budget.  Section 
-ef{sec:nodedropout} reports what that experiment found.
+That statement needs a caveat, and the caveat is a handicap to the models rather than a weakness of them.  These models were trained to forecast a station \emph{from its own history}, and they were then asked to forecast a station whose own history was removed---a situation they had never practised, while the interpolation baselines have no such dependence because they never use the station's own history at all.  So the defensible claim is the narrow one: \emph{graph models trained for forecasting do not transfer to unseen stations with a missing own history better than an inverse-distance-weighted average of the neighbours}.  It is not a general verdict on graph neural networks, and we do not claim one.  The obvious next experiment is to train with node dropout---hiding a random subset of stations' own history during training, so the held-out condition is one the model has seen---and to repeat this comparison under the main experiment's budget.  Section \ref{sec:nodedropout} reports what that experiment found.
 
 This reframes the main experiment rather than contradicting it.  The graph models lose to simple interpolation precisely in the regime where they have to rely on the neighbours, and they win in the regime where the station's own history is available---in the first variant, on stations they have never seen, they beat the best simple spatial baseline by 5.3 $\mu$g/m$^3$ and the network-wide mean by 11.7, precisely because they are using the station's own history.  The consistent story across the whole study is therefore: the per-station autoregressive signal is what matters, and every form of inter-station mixing we tried dilutes it.
 
 \begin{table}[htbp]
 \centering
 \caption{Leave-station-out: MAE on the held-out stations only ($\mu$g/m$^3$).  The neural models never saw those stations' targets; ridge is fitted on the training stations only.}
-\begin{tabular}{lrrrrr}
+\begin{tabularx}{\textwidth}{p{2.6cm} r r r r X}
 \hline
 configuration & MAE & $R^2$ & 1h & 24h & 48h  \\
 \hline
@@ -492,13 +494,13 @@ stgcn\_identity\_s42\_lso10\_target & 35.36 & 0.611 & 16.11 & 35.91 & 39.58  \\
 stgcn\_wind\_aware\_s123\_lso10\_target & 35.68 & 0.601 & 16.15 & 36.06 & 39.52  \\
 stgcn\_wind\_aware\_s42\_lso10\_target & 35.77 & 0.598 & 16.23 & 36.17 & 40.05  \\
 \hline
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \begin{table}[htbp]
 \centering
 \caption{Leave-station-out, paired bootstrap over test weeks (A minus B; negative means A is better).}
-\begin{tabular}{lrrc}
+\begin{tabularx}{\textwidth}{p{5.6cm} r p{3.2cm} X}
 \hline
 comparison & $\Delta$MAE & 95\% CI & $P(A<B)$  \\
 \hline
@@ -526,7 +528,7 @@ stgcn distance vs idw seasonal & +1.08 & [-0.41, 2.75] & 0.082  \\
 stgcn distance vs network mean & -4.68 & [-6.29, -2.99] & 1.000  \\
 graph wavenet distance vs idw seasonal & +0.58 & [-0.88, 2.22] & 0.242  \\
 \hline
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \subsection{Does node dropout rescue the graph?}
