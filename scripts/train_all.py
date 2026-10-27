@@ -39,6 +39,8 @@ from src.models.lstm import build_lstm_model
 from src.models.transformer import build_transformer_model
 from src.models.stgcn import build_stgcn_model
 from src.models.graph_wavenet import build_graph_wavenet_model
+from src.models.gcn_gru import build_gcn_gru_model
+from src.models.gatv2_stgcn import build_gatv2_stgcn_model
 
 DATA_PATH = PROJECT_ROOT / "data" / "processed" / "delhi_ncr_pm25_2019_2025.npz"
 CKPT_DIR = PROJECT_ROOT / "checkpoints"
@@ -68,6 +70,10 @@ def build_model(name, cfg, n_stations):
         return build_stgcn_model(cfg)
     if name == "graph_wavenet":
         return build_graph_wavenet_model(cfg)
+    if name == "gcn_gru":
+        return build_gcn_gru_model(cfg)
+    if name == "gatv2_stgcn":
+        return build_gatv2_stgcn_model(cfg)
     raise ValueError(name)
 
 

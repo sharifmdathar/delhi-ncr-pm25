@@ -118,8 +118,8 @@ def build_dataset(df: pd.DataFrame, save_path: str = None) -> Dict[str, np.ndarr
         "station_ids": station_ids,
         "coords": coords.astype(np.float32),
         "feature_names": np.array(feature_cols, dtype=object),
-        "norm_mean": np.array([norm_mean], dtype=np.float32),
-        "norm_std": np.array([norm_std], dtype=np.float32),
+        "norm_mean": np.float32(norm_mean),
+        "norm_std": np.float32(norm_std),
         "split_indices_train": train_idx.astype(np.int64),
         "split_indices_val": val_idx.astype(np.int64),
         "split_indices_test": test_idx.astype(np.int64),
@@ -149,4 +149,11 @@ def load_dataset(path: str = None) -> Dict:
     """Load frozen dataset from NPZ file."""
     path = path or FROZEN_DATA_PATH
     data = np.load(path, allow_pickle=True)
-    return dict(data)
+    d = dict(data)
+    # Normalise norm_mean/norm_std to Python floats so both the old
+    # (1-element array) and new (0-d scalar) frozen formats work.
+    if "norm_mean" in d:
+        d["norm_mean"] = float(np.asarray(d["norm_mean"]).flat[0])
+    if "norm_std" in d:
+        d["norm_std"] = float(np.asarray(d["norm_std"]).flat[0])
+    return d

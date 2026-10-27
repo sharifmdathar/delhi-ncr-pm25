@@ -35,7 +35,8 @@ Hourly PM2.5 comes from the CPCB continuous monitoring network, obtained as 15-m
 The record is seven years long, which is long enough to contain four complete winters in the training block and two in the test block, and to support a rolling-origin evaluation. It is nevertheless a single region and a single hazard, which bounds what can be claimed about transfer to other cities or other pollutants.
 
 \subsection{Provenance and the observation mask}
-Table~ef{tab:provenance} lists every source.  The target and the meteorological features are the values measured at the stations themselves, from the CPCB continuous monitoring network; the coordinates come from the CPCB station list.  ERA5 reanalysis is used only in one ablation, as a second source of wind for the graph edge directions, and is never a model input.
+Table~
+ef{tab:provenance} lists every source.  The target and the meteorological features are the values measured at the stations themselves, from the CPCB continuous monitoring network; the coordinates come from the CPCB station list.  ERA5 reanalysis is used only in one ablation, as a second source of wind for the graph edge directions, and is never a model input.
 
 Because an earlier version of this study used a synthetic fallback, we make the claim mechanically checkable rather than a promise.  The build fails if any station falls below 70\% real observations in any split, and the frozen dataset is audited for fabricated values: every stored PM2.5 value is either backed by a real observation flag or is missing.  The audit finds no value present while flagged unobserved, and no flagged-observed value that is missing, so there is nothing in the dataset that did not come from a real reading.  The per-station, per-year observed fractions before any processing are in the repository (``outputs/provenance.md``).
 
@@ -261,7 +262,9 @@ GraphWaveNet & fold4 & 2025 & 31.32 & 31.23 & 32.87 & wind\_aware & 0.09 \\
 \end{table}
 
 \subsection{Case studies}
-Three real events from the test period, chosen by construction rather than by inspecting the model's wins: the Diwali fireworks episode of October 2024, the January 2024 winter inversion, and a May 2024 dust episode. Figure~ef{fig:cases} shows the network mean through each event; Table~ef{tab:cases} gives the errors.
+Three real events from the test period, chosen by construction rather than by inspecting the model's wins: the Diwali fireworks episode of October 2024, the January 2024 winter inversion, and a May 2024 dust episode. Figure~
+ef{fig:cases} shows the network mean through each event; Table~
+ef{tab:cases} gives the errors.
 
 \begin{figure}[htbp]
 \centering
@@ -272,7 +275,7 @@ Three real events from the test period, chosen by construction rather than by in
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\textwidth]{../outputs/fig_case_winter.png}
+\includegraphics[width=\textwidth]{../outputs/fig_case_winter_inversion.png}
 \caption{Winter inversion, 13--15 January 2024. A slow regional build-up that the 72-hour input window can partly anticipate; here the neural models are far ahead of both baselines.}
 \label{fig:case-winter}
 \end{figure}
@@ -328,7 +331,8 @@ A graph ablation says how much a structure is worth; introspection says what it 
 \end{figure}
 
 \subsection{How much of the network actually has wind?}
-Twenty-one per cent of the stations in this study---nine of forty-two---report no wind measurements at all in the CPCB files, in any year.  For those stations the wind-aware graph is built from the network-mean wind direction, which is a placeholder rather than a local measurement.  Splitting the per-station errors by that distinction is informative (Table~ef{tab:wcov}): the wind-aware graph is better than the distance graph at both kinds of station, and the penalty that any graph imposes relative to using no graph at all is larger where the wind \emph{is} measured.  A natural, and we think plausible, reading is that what a graph costs scales with how much it mixes: where a station-specific wind produces a station-specific set of edges, the model averages in neighbours that carry a different local signal and dilutes the autoregressive term; where the wind is missing the fallback produces a coarser, more uniform graph that dilutes less.  We want to be clear that this is a hypothesis consistent with the data, not a demonstrated mechanism: the split is observational, the two groups differ in more than one respect, and a mechanism test would need to control for the stations' own error levels.  What the data does show is that the graph penalty is not a constant---it depends on the station---and that it is small.
+Twenty-one per cent of the stations in this study---nine of forty-two---report no wind measurements at all in the CPCB files, in any year.  For those stations the wind-aware graph is built from the network-mean wind direction, which is a placeholder rather than a local measurement.  Splitting the per-station errors by that distinction is informative (Table~
+ef{tab:wcov}): the wind-aware graph is better than the distance graph at both kinds of station, and the penalty that any graph imposes relative to using no graph at all is larger where the wind \emph{is} measured.  A natural, and we think plausible, reading is that what a graph costs scales with how much it mixes: where a station-specific wind produces a station-specific set of edges, the model averages in neighbours that carry a different local signal and dilutes the autoregressive term; where the wind is missing the fallback produces a coarser, more uniform graph that dilutes less.  We want to be clear that this is a hypothesis consistent with the data, not a demonstrated mechanism: the split is observational, the two groups differ in more than one respect, and a mechanism test would need to control for the stations' own error levels.  What the data does show is that the graph penalty is not a constant---it depends on the station---and that it is small.
 
 \begin{table}[htbp]
 \centering
@@ -409,7 +413,8 @@ So the corrected reading is the opposite of the one we started with.  For a stat
 
 Delhi's PM2.5 is strongly regional, and the regional signal is captured perfectly well by a distance-weighted average of the neighbours.  What the graph model learns instead is how to mix, and the mixing it learns is worse than the mixing a two-line distance weighting does.
 
-That statement needs a caveat, and the caveat is a handicap to the models rather than a weakness of them.  These models were trained to forecast a station \emph{from its own history}, and they were then asked to forecast a station whose own history was removed---a situation they had never practised, while the interpolation baselines have no such dependence because they never use the station's own history at all.  So the defensible claim is the narrow one: \emph{graph models trained for forecasting do not transfer to unseen stations with a missing own history better than an inverse-distance-weighted average of the neighbours}.  It is not a general verdict on graph neural networks, and we do not claim one.  The obvious next experiment is to train with node dropout---hiding a random subset of stations' own history during training, so the held-out condition is one the model has seen---and to repeat this comparison under the main experiment's budget.  Section ef{sec:nodedropout} reports what that experiment found.
+That statement needs a caveat, and the caveat is a handicap to the models rather than a weakness of them.  These models were trained to forecast a station \emph{from its own history}, and they were then asked to forecast a station whose own history was removed---a situation they had never practised, while the interpolation baselines have no such dependence because they never use the station's own history at all.  So the defensible claim is the narrow one: \emph{graph models trained for forecasting do not transfer to unseen stations with a missing own history better than an inverse-distance-weighted average of the neighbours}.  It is not a general verdict on graph neural networks, and we do not claim one.  The obvious next experiment is to train with node dropout---hiding a random subset of stations' own history during training, so the held-out condition is one the model has seen---and to repeat this comparison under the main experiment's budget.  Section 
+ef{sec:nodedropout} reports what that experiment found.
 
 This reframes the main experiment rather than contradicting it.  The graph models lose to simple interpolation precisely in the regime where they have to rely on the neighbours, and they win in the regime where the station's own history is available---in the first variant, on stations they have never seen, they beat the best simple spatial baseline by 5.3 $\mu$g/m$^3$ and the network-wide mean by 11.7, precisely because they are using the station's own history.  The consistent story across the whole study is therefore: the per-station autoregressive signal is what matters, and every form of inter-station mixing we tried dilutes it.
 
@@ -592,6 +597,34 @@ graph\_wavenet\_distance & 34.69 & -- & -- \\
 One feature of the per-horizon tables deserves a note: the error of the baselines is not monotone in the horizon, with the 12-hour column worse than the 24-hour column.  This is a property of the data rather than an artefact of the evaluation.  Delhi's PM2.5 has a strong diurnal cycle with a peak-to-trough amplitude of 51 $\mu$g/m$^3$, so a 12-hour horizon lands on the opposite phase of that cycle while a 24-hour horizon returns to the same phase.  The effect is large enough to dominate the slow growth of the forecast error, and it is present in the raw records as well.
 
 Every model is three to five times worse during severe episodes
+
+\subsection{Extensions: GCN-GRU and GATv2-STGCN}
+The two architectures above were the ones specified in the locked scope. Two further
+models were added after the main experiment closed, to probe whether a different
+message-passing operator changes the conclusion:
+
+\begin{itemize}
+    \item \textbf{GCN-GRU} (\texttt{src/models/gcn\_gru.py}) is a ~150-line
+    implementation of the basic graph convolution $H' = \mathrm{act}(A\,(H W))$
+    followed by a GRU, built from scratch for understanding what message passing
+    does.  It shares the delta-prediction head and the linear autoregressive skip,
+    so it is measured on the same footing as the other models.
+    \item \textbf{GATv2-STGCN} (\texttt{src/models/gatv2\_stgcn.py}) replaces the
+    fixed adjacency matmul with multi-head GATv2 attention
+    $\alpha_{ij} = \mathrm{softmax}_j(a^\top \mathrm{LeakyReLU}([Wh_i \,\|\, Wh_j]))$,
+    with the adjacency acting as a sparsity mask.  This tests whether learned
+    spatial attention beats the static and wind-aware graphs.
+\end{itemize}
+
+Both were trained and evaluated on the same 8-station sample dataset that the
+tests use, so a reviewer can reproduce them in seconds.  On that sample the
+GCN-GRU reaches MAE 49.65 and GATv2-STGCN 49.53 $\mu$g/m$^3$, both comfortably
+ahead of ridge (63.86) and persistence (67.09) on the same windows.  These
+numbers are not a replication of the main result -- the sample is two months of
+eight stations -- and we report them only to show that the two additional
+architectures train and evaluate correctly within the same pipeline.  They do
+not change the conclusions above, which rest on the 42-station, 7-year
+experiment.
 
 \section{Discussion}
 \subsection{What the graph comparison shows}
