@@ -74,6 +74,15 @@ class DataCleaner:
             df = pd.read_csv(f)
             df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
             df = df.dropna(subset=["timestamp"])
+            # Keep only the reading at the top of each hour.  This reproduces the
+            # published construction exactly: the hourly-grid reindex in clean()
+            # keeps the :00 reading rather than the mean of the four 15-minute
+            # values (see EXPERIMENTS.md "Data-construction detail"), and 99.99% of
+            # station-hours have a :00 reading, so no data is lost.  Pre-filtering
+            # here cuts the rows that reach the groupby 4x (13.5M -> 3.4M), which
+            # prevents the OOM that concat-all-then-groupby triggers on a ~4 GB-RAM
+            # machine, without changing the frozen arrays.
+            df = df[df["timestamp"].dt.minute == 0]
             frames.append(df)
 
         df = pd.concat(frames, ignore_index=True)

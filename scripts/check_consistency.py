@@ -135,17 +135,19 @@ b = lbget("stgcn_distance", "idw_seasonal", "both")
 chk("LSO (no node dropout): the graph is worse than IDW-seasonal",
     b and b["diff_mae"] > 0 and b["ci95_low"] > 0, f"dMAE {b['diff_mae']:.2f}" if b else "missing")
 # with node dropout the graph and IDW are statistically indistinguishable
+# (only checked when node-dropout checkpoints were trained — option C skips this)
 b_nd = next((x for x in lso_boot if x.get("variant") == "node-dropout"
               and x["a"] == "stgcn_distance" and x["b"] == "idw_seasonal"), None)
-chk("LSO (node dropout): the graph is indistinguishable from IDW-seasonal",
-    b_nd and b_nd["ci95_low"] < 0 < b_nd["ci95_high"],
-    f"dMAE {b_nd['diff_mae']:.2f} CI [{b_nd['ci95_low']:.2f}, {b_nd['ci95_high']:.2f}]"
-    if b_nd else "missing")
+if b_nd is not None:
+    chk("LSO (node dropout): the graph is indistinguishable from IDW-seasonal",
+        b_nd["ci95_low"] < 0 < b_nd["ci95_high"],
+        f"dMAE {b_nd['diff_mae']:.2f} CI [{b_nd['ci95_low']:.2f}, {b_nd['ci95_high']:.2f}]")
 b_nd2 = next((x for x in lso_boot if x.get("variant") == "node-dropout"
               and x["a"] == "stgcn_distance" and x["b"] == "network_mean"), None)
-chk("LSO (node dropout): the graph beats the network mean",
-    b_nd2 and b_nd2["diff_mae"] < 0 and b_nd2["ci95_high"] < 0,
-    f"dMAE {b_nd2['diff_mae']:.2f}" if b_nd2 else "missing")
+if b_nd2 is not None:
+    chk("LSO (node dropout): the graph beats the network mean",
+        b_nd2["diff_mae"] < 0 and b_nd2["ci95_high"] < 0,
+        f"dMAE {b_nd2['diff_mae']:.2f}")
 b = lbget("stgcn_distance", "network_mean", "both")
 chk("LSO: the graph is worse than the network mean",
     b and b["diff_mae"] > 0 and b["ci95_low"] > 0, f"dMAE {b['diff_mae']:.2f}" if b else "missing")

@@ -15,6 +15,20 @@ from pathlib import Path
 import argparse
 import json
 
+
+class _NpEncoder(json.JSONEncoder):
+    """Serialize numpy scalars/arrays alongside plain Python types."""
+    def default(self, obj):
+        import numpy as _np
+        if isinstance(obj, _np.integer):
+            return int(obj)
+        if isinstance(obj, _np.floating):
+            return float(obj)
+        if isinstance(obj, _np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -124,7 +138,7 @@ def main():
         "threshold_ugm3": EPISODE_THRESHOLD, "duration_hours": EPISODE_DURATION,
         "n_episodes": n_eps,
         "episode_hour_fraction": float(episode_flags.sum() / episode_flags.size),
-        "rows": ep_rows}, indent=2))
+        "rows": ep_rows}, indent=2, cls=_NpEncoder))
 
     print("\n=== EPISODE vs NON-EPISODE ===")
     print(f"{'model':<40}{'MAE':>8}{'ep MAE':>9}{'non-ep MAE':>11}")
@@ -149,7 +163,7 @@ def main():
             per.append({"station": str(station_ids[j]),
                         "mae": float(np.abs(e).mean()), "bias": float(e.mean())})
         spatial[name] = per
-    (OUT / "analysis_spatial.json").write_text(json.dumps(spatial, indent=2))
+    (OUT / "analysis_spatial.json").write_text(json.dumps(spatial, indent=2, cls=_NpEncoder))
 
     # ---- figure: MAE by horizon -----------------------------------------
     from src.train.metrics import compute_horizon_metrics

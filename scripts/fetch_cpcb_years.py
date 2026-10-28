@@ -76,7 +76,35 @@ def process_year(pq_path: Path, out_dir: Path) -> pd.DataFrame:
     the pipeline.
     """
     print(f"  [read] {pq_path.name}")
-    df = pd.read_parquet(pq_path)
+    # Low-memory read: load only the ~11 columns we keep and pre-filter to the
+    # NCR modelling cities while still in Arrow (columnar) form, one row group
+    # at a time.  Reading the full nationwide parquet (29 cols, ~12.4M rows) into
+    # pandas balloons to ~6 GB RSS and OOMs on a ~4 GB-RAM machine; this keeps
+    # peak memory well under 300 MB.  Pre-filtering to NCR_CITIES reproduces the
+    # final per-station CSVs exactly (the broader TARGET filter and the later
+    # `combined[city in NCR_CITIES]` step are a superset that narrows to the same
+    # set), so build_dataset selects the same 42 stations.
+    import pyarrow.parquet as _pq
+    import pyarrow as _pa
+    import pyarrow.compute as _pc
+    _src_cols = ["Station ID", "State", "City", "Station Name", "Timestamp",
+                 "PM2.5 (\u00b5g/m\u00b3)", "AT (\u00b0C)", "RH (%)",
+                 "WS (m/s)", "WD (deg)", "RF (mm)"]
+    _pf = _pq.ParquetFile(pq_path)
+    _avail = set(_pf.schema_arrow.names)
+    _cols = [c for c in _src_cols if c in _avail]
+    _ncr = _pa.array(sorted(NCR_CITIES))
+    _parts = []
+    for _rg in range(_pf.metadata.num_row_groups):
+        _t = _pf.read_row_group(_rg, columns=_cols)
+        if "City" in _t.column_names:
+            _t = _t.filter(_pc.is_in(_t["City"], value_set=_ncr))
+        if _t.num_rows:
+            _parts.append(_t.to_pandas())
+    if not _parts:
+        print("  [warn] no NCR-city rows")
+        return pd.DataFrame()
+    df = pd.concat(_parts, ignore_index=True)
 
     # Normalize column names (source has 'PM2.5 (µg/m³)' with unicode)
     ren = {}

@@ -1,7 +1,7 @@
 # Data provenance and mask audit
 
 Dataset: `data/processed/delhi_ncr_pm25_2019_2025.npz`  
-SHA-256: `f70748d56fe2c2e77806f61420e4486de3fe57335b76610363353beff808c993`
+SHA-256: `0bc0dc1337137b8394e4347b8aab2ba82fee1d11d64809c35d3d56ed6c1fc31c`
 
 ## Sources
 

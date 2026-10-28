@@ -7,613 +7,883 @@
 \usepackage{tabularx}
 \usepackage{booktabs}
 \usepackage{amsmath,amssymb,amsfonts}
+\usepackage{xurl}
 \usepackage{hyperref}
+\usepackage{float}
+\usepackage{caption}
 \geometry{margin=1in}
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
 
+% Convenient column types with ragged alignments to avoid underfull/overfull hboxes
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\setlength{\LTcapwidth}{\textwidth}
+
 \title{Spatiotemporal Forecasting of Hourly PM2.5 in Delhi-NCR:\\
 Does a Wind-Aware Graph Beat a Static Distance Graph?}
-\author{[Author names and affiliations]}
+\author{Md Athar Sharif\\
+\small B.Tech.\ Computer Science and Engineering (2024--2028)\\
+\small International Institute of Information Technology, Naya Raipur}
 \date{October 2026}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-We forecast hourly PM2.5 at 42 monitoring stations across Delhi-NCR over 2019--2025 and ask whether a wind-aware graph structure provides predictive gains over a static distance-based graph. On held-out 2024--2025 data the best neural model reaches MAE 32.60 $\mu$g/m$^3$, against 44.03 for ridge regression on the last 24 lags and 38.63 for seasonal naive. The graph comparison is subtle, and we judge it with a paired bootstrap over the 105 test weeks rather than a per-seed standard deviation. For Graph WaveNet the wind-aware graph beats the static distance graph (33.77 vs.\ 34.60 $\mu$g/m$^3$, paired difference 0.83, 95\% CI [0.49, 1.18]); for STGCN the two are indistinguishable (0.13, CI [-0.04, 0.32]). In both architectures, dropping the graph entirely is significantly better than the distance graph (0.51 and 1.16 $\mu$g/m$^3$); against the wind-aware graph the differences are 0.38 (STGCN) and 0.33 (Graph WaveNet), the latter not significant. Graph WaveNet's self-adaptive adjacency is the worst of the four (+1.26 $\mu$g/m$^3$ against no graph, CI [0.56, 2.03]). A network-mean diagnostic shows that handing the model the network-wide average explicitly gains almost nothing (0.06 $\mu$g/m$^3$, CI [-0.11, -0.01]), so the graph is not delivering the regional signal. With node-dropout training, a graph neural network and an inverse-distance-weighted average of neighbours become statistically indistinguishable on a station whose own history is missing (1.08 $\mu$g/m$^3$, CI [-0.41, 2.75]). The consistent reading is that the per-station autoregressive signal dominates, and inter-station mixing at this network's 16 km station spacing dilutes it.
+We forecast hourly PM2.5 at 42 monitoring stations across Delhi-NCR over
+2019--2025 and ask whether a wind-aware graph provides predictive gains over a
+static distance-based graph. On held-out 2024--2025 data the best neural model
+(per-station STGCN without a graph, predicting changes from the last observation)
+reaches MAE 32.61~$\mu$g/m$^3$, against 44.03 for ridge regression on the last
+24 lags and 46.79 for persistence. The graph comparison is judged with a paired
+bootstrap over the 105 test weeks rather than a per-seed standard deviation.
+For Graph WaveNet the wind-aware graph beats the static distance graph
+(33.76 vs.\ 34.39~$\mu$g/m$^3$, difference 0.63, 95\% CI [0.36, 0.91]);
+for STGCN the two are indistinguishable (0.12, CI [$-$0.15, 0.41]).
+In both architectures, dropping the distance graph is significantly better than
+keeping it; dropping the wind-aware graph is also better, significantly so for
+STGCN (no graph wins by 0.45, CI [0.15, 0.79]) and not significantly for
+Graph WaveNet (0.19, CI [$-$0.15, 0.55]).
+The graph learned end-to-end (Graph WaveNet's adaptive adjacency) and the
+correlation graph are the two worst configurations; the correlation graph
+reaches 35.03~$\mu$g/m$^3$ ($+$1.46 vs.\ no graph, CI [0.70, 2.29]).
+A network-mean diagnostic shows that handing the model the network-wide
+average explicitly gains essentially nothing (0.01~$\mu$g/m$^3$), so
+inter-station mixing is not delivering a useful regional signal.
+The consistent reading is that the per-station autoregressive signal dominates
+and inter-station mixing is at best a weak positive and at worst a net cost.
+Whether the mixing is harmful or just redundant is a hypothesis consistent
+with the data, not a demonstrated mechanism.
 \end{abstract}
 
 \section{Introduction}
-Air pollution in Delhi-NCR is a severe public health crisis. Accurate hourly PM2.5 forecasts at station level could enable targeted interventions. Recent literature proposes spatiotemporal graph neural networks (STGNNs) for air quality forecasting, claiming that graph structure---whether static (distance, correlation) or wind-aware---captures pollutant transport and improves predictions. This work tests that claim on a frozen, real-world dataset spanning 2019--2025 across Delhi-NCR monitoring stations, with the graph hypothesis isolated behind a controlled ablation and judged with a paired bootstrap rather than a per-seed standard deviation.
+Air pollution in Delhi-NCR is a severe public health crisis.  Accurate hourly
+PM2.5 forecasts at station level could enable targeted interventions.  Recent
+literature proposes spatiotemporal graph neural networks (STGNNs) for air
+quality forecasting, claiming that graph structure---whether static
+(distance, correlation) or wind-aware---captures pollutant transport and
+improves predictions.  This work tests that claim on a frozen, real-world
+dataset spanning 2019--2025 across Delhi-NCR monitoring stations, with the
+graph hypothesis isolated behind a controlled ablation and judged with a
+paired bootstrap rather than a per-seed standard deviation.
 
 \section{Related work}
-Spatiotemporal graph networks for forecasting were popularised by the diffusion convolutional recurrent neural network of Li et al.\cite{dcrnn}, which placed a recurrent model on a diffusion graph over road sensors and showed that capturing spatial dependence improved over a convolutional baseline. Yu et al.\cite{stgcn} separated spatial and temporal operators into a spectral graph convolution followed by gated temporal convolutions; the STGCN we train here is a GRU-based variant of that architecture, which we flag because the choice of temporal operator is a degree of freedom the original paper fixes differently. Graph WaveNet\cite{graphwavenet} replaced the stacked recurrent unit with dilated causal convolutions over time, which widens the receptive field without recurrence, and introduced a self-adaptive adjacency learned from two node embeddings; that adaptive variant is the fourth structure in our ablation. On the air-quality side, spatiotemporal graph networks have been applied to PM2.5 forecasting for Chinese and Indian networks\cite{pm25gnn}, typically with a distance-threshold graph over stations, and sometimes with a wind-aware or correlation-based graph, reporting gains over graph-free baselines.
-
-Two aspects of that literature motivate this study. First, the reported gains are usually measured against weak baselines---persistence, or a historical average---so a graph-free sequence model that merely tracks the recent trend can look competitive. Second, the comparison is rarely made with enough repetitions to resolve the small differences that graph structure actually produces: the effects we measure here are of order 0.1 to 1 $\mu$g/m$^3$, well inside the seed-to-seed spread of a single three-seed run. We therefore fix the data pipeline, give every variant identical training and evaluation, use eight seeds for the two graph architectures, and judge the differences with a paired bootstrap over test weeks.
+Spatiotemporal graph networks for forecasting were popularised by the diffusion
+convolutional recurrent neural network of Li et al.\cite{dcrnn}, which placed a
+recurrent model on a diffusion graph over road sensors and showed that capturing
+spatial dependence improved over a convolutional baseline.  Yu et al.\cite{stgcn}
+separated spatial and temporal operators into a spectral graph convolution
+followed by gated temporal convolutions; the STGCN we train here is a GRU-based
+variant of that architecture.  Graph WaveNet~\cite{graphwavenet} introduced
+dilated causal convolutions with a fixed or learned adjacency.
+On the air-quality side, spatiotemporal graph networks have been applied to
+PM2.5 forecasting, typically with a distance-threshold graph, sometimes with a
+wind-aware graph, reporting gains over graph-free baselines~\cite{pm25gnn}.
+Two aspects of that literature motivate this study.  First, the reported gains
+are usually measured against weak baselines, so a graph-free sequence model
+can look competitive.  Second, the comparison is rarely made with enough
+repetitions to resolve the small differences that graph structure actually
+produces.
 
 \section{Data}
 \subsection{Source and coverage}
-Hourly PM2.5 comes from the CPCB continuous monitoring network, obtained as 15-minute records for 2009--2025 from the \texttt{Vonter/india-cpcb-aqi} release archive. After resampling to hourly and dropping stations below 70\% real-observation coverage in any split, the modelling set is 42 stations with approximately 61{,}300 hourly timestamps over 2019-01-01 to 2025-12-31 (the split sums in Table~\ref{tab:mask} are exact; the small difference from a naive year count is a 23-hour gap that separates the validation and test blocks). Station meteorology (temperature, relative humidity, wind speed and direction, rainfall) is measured at the stations themselves.
-
-The record is seven years long, which is long enough to contain four complete winters in the training block and two in the test block, and to support a rolling-origin evaluation. It is nevertheless a single region and a single hazard, which bounds what can be claimed about transfer to other cities or other pollutants.
+Hourly PM2.5 comes from the CPCB continuous monitoring network, obtained as
+15-minute records for 2009--2025 from the \texttt{Vonter/india-cpcb-aqi}
+release archive.  After resampling to hourly and dropping stations below 70\%
+real-observation coverage in any split, the modelling set is 42 stations with
+approximately 61{,}345 hourly timestamps over 2019-01-01 to 2025-12-31.
+Station meteorology (temperature, relative humidity, wind speed and direction,
+rainfall) is measured at the stations themselves.
 
 \subsection{Provenance and the observation mask}
-Table~\ref{tab:provenance} lists every source. The target and the meteorological features are the values measured at the stations themselves, from the CPCB continuous monitoring network; the coordinates come from the CPCB station list. ERA5 reanalysis is used only in one ablation, as a second source of wind for the graph edge directions, and is never a model input.
-
-The frozen dataset is audited for fabricated values: every stored PM2.5 value is either backed by a real observation flag or is missing. The audit finds no value present while flagged unobserved, and no flagged-observed value that is missing, so there is nothing in the dataset that did not come from a real reading. The per-station, per-year observed fractions before any processing are in the repository (\texttt{outputs/provenance.md}). The build fails if any station falls below 70\% real observations in any split.
+Table~\ref{tab:provenance} lists every source.  No synthetic data is used.
+The build fails if any station falls below 70\% real observations in any split.
 
 \begin{table}[htbp]
 \centering
 \small
-\caption{Data sources. No synthetic data is used anywhere; the build fails if any station falls below the coverage bar in any split.}
+\caption{Data sources. No synthetic data is used anywhere.}
 \label{tab:provenance}
-\begin{tabularx}{\textwidth}{p{2.8cm} p{3.4cm} X p{2.9cm}}
+\begin{tabularx}{\textwidth}{L{2.8cm} L{3.2cm} Y L{3.0cm}}
 \toprule
-what & source & accessed via & licence  \\
+what & source & accessed via & licence \\
 \midrule
-hourly PM2.5 target + station meteorology & CPCB continuous monitoring, 15-minute records & \url{https://github.com/Vonter/india-cpcb-aqi} (release archive) & openly released by CPCB; see source for current terms  \\
-ERA5 reanalysis wind (ablation only) & ERA5 via the Open-Meteo archive API & \url{https://archive-api.open-meteo.com/v1/archive} & Copernicus licence (free, attribution required)  \\
-station metadata (lat/lon, city) & CPCB station list + XKDR air-quality station registry & data/raw/station\_coords.csv, data/raw/cpcb\_station\_catalog.csv & public metadata  \\
+hourly PM2.5 + station meteorology & CPCB continuous monitoring, 15-minute records &
+  \url{https://github.com/Vonter/india-cpcb-aqi} (release archive) &
+  ODbL as published by CPCB \\
+ERA5 reanalysis wind (ablation only) & ERA5 via Open-Meteo archive API &
+  \url{https://archive-api.open-meteo.com/v1/archive} &
+  Copernicus licence (free, attribution required) \\
+station metadata (lat/lon, city) & CPCB station list + XKDR registry &
+  \small\texttt{data/raw/station\_coords.csv} &
+  public metadata \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-The target is never imputed. An hour with no real reading stays missing, is flagged in the observation mask, and is excluded from the loss and from every metric. Table~\ref{tab:mask} gives the resulting coverage; 6.5\% of the test split is missing, and the metrics reported throughout are computed on the observed remainder.
+The target is never imputed.  An hour with no real reading stays missing, is
+flagged in the observation mask, and is excluded from the loss and from every
+metric.  Table~\ref{tab:mask} gives the resulting coverage; 6.5\% of the test
+split is missing, and the metrics reported throughout are computed on the
+observed remainder.
 
 \begin{table}[htbp]
 \centering
-\caption{Observation-mask audit. The target is never imputed: an hour with no real reading stays missing and is excluded from every loss and every metric, so all reported numbers are computed on observed values only.}
+\caption{Observation-mask audit.  The target is never imputed.}
 \label{tab:mask}
-\begin{tabularx}{\textwidth}{p{1.8cm} p{1.6cm} p{1.9cm} p{1.9cm} p{1.9cm} X}
+\begin{tabular}{lrrrrr}
 \toprule
-split & hours & observed & missing & mean PM2.5 & frac $>300$  \\
+split & hours & observed & missing & mean PM2.5 & frac $>$300 \\
 \midrule
-train & 35,041 & 90.80\% & 9.20\% & 102.0 & 4.82\%  \\
-val & 8,760 & 92.32\% & 7.68\% & 98.0 & 4.23\%  \\
-test & 17,521 & 93.52\% & 6.48\% & 97.5 & 4.15\%  \\
+train & 35,041 & 90.80\% & 9.20\%  & 102.0 & 4.82\% \\
+val   &  8,760 & 92.32\% & 7.68\%  &  98.0 & 4.23\% \\
+test  & 17,521 & 93.52\% & 6.48\%  &  97.5 & 4.15\% \\
 \bottomrule
-\end{tabularx}
+\end{tabular}
 \end{table}
 
 \subsection{Splits and leakage control}
-Splits are chronological and non-overlapping: train 2019--2022 (34,922 windows), validation 2023 (8,641 windows), test 2024--2025 (17,402 windows). Every window's inputs \emph{and} targets lie wholly inside its own split, which we verify programmatically; the train and validation blocks are contiguous and a 23-hour gap precedes the test block. Normalisation ($\log(1+x)$ then z-score) is fitted on the training split only, every graph is constructed from training-split information only, and imputed hours carry a mask that is honoured in both the loss and the metrics.
-
-\begin{table}[htbp]
-\centering
-\caption{Split statistics (observed hours only).}
-\begin{tabularx}{\textwidth}{p{4.2cm} r r r r X}
-\toprule
-Split & mean & std & p50 & p95 & frac$>$300 \\
-\midrule
-Train (2019--2022) & 102.0 & 98.1 & 69.0 & 296.6 & 4.82\% \\
-Validation (2023) & 98.0 & 92.2 & 63.0 & 286.6 & 4.23\% \\
-Test (2024--2025) & 97.5 & 93.8 & 65.4 & 283.0 & 4.15\% \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-The three splits have near-identical distributions, which is essential: the training split contains four full winter episodes, so the models can learn winter dynamics.
+Splits are chronological and non-overlapping: train 2019--2022 (34{,}922
+windows), validation 2023 (8{,}641 windows), test 2024--2025 (17{,}402
+windows).  The split window counts sum to 60{,}965; the 23-hour gap that
+separates the test block from validation accounts for the difference from the
+61{,}345 total hours.  Every window's inputs \emph{and} targets lie wholly
+inside its own split, verified programmatically.  The train and validation blocks are
+contiguous; a 23-hour gap separates the test block from validation.
+Normalisation ($\log(1{+}x)$ then z-score) is fitted on the training split
+only, every graph is constructed from training-split information only, and
+imputed hours carry a mask honoured in both the loss and the metrics.
 
 \section{Methods}
 \subsection{Baselines}
-\textbf{Persistence} repeats the last observed value. \textbf{Seasonal naive} repeats the value observed 24 hours before the target, which is a far stronger baseline than plain persistence because Delhi's PM2.5 has a large diurnal cycle. \textbf{Hour-of-week average} takes, for each station and each hour of the week, the mean observed PM2.5 over the training split; it uses no recent observation at all. \textbf{Ridge} fits a per-station linear map from the last 24 hourly values to each horizon, on the training split only. Ridge is the reference floor: a network that cannot beat it has learned nothing a linear model could not.
+\textbf{Persistence} repeats the last observed value.
+\textbf{Seasonal naive} repeats the value observed 24 hours before the target;
+this is a far stronger baseline than plain persistence because Delhi's PM2.5
+has a large diurnal cycle.
+\textbf{Hour-of-week average} takes, for each station and hour of the week,
+the mean observed PM2.5 over the training split.
+\textbf{Ridge} fits a per-station linear map from the last 24 hourly values to
+each horizon on the training split only.
 
 \subsection{Models}
-LSTM (univariate, shared weights applied per station; multivariate, stations as channels), a temporal Transformer, STGCN (spectral graph convolution followed by a GRU, a GRU-based variant of the gated temporal convolution used by Yu et al.), and Graph WaveNet (dilated causal convolutions with a fixed or learned adjacency). Across the four architectures, the study trains 15 configurations in total.
+LSTM (univariate, shared weights per station; multivariate, stations as
+channels), a temporal Transformer, STGCN (spectral graph convolution + GRU),
+and Graph WaveNet (dilated causal convolutions with fixed or learned adjacency).
+Fifteen configurations in total.
 
-Two design choices matter more than architecture. First, every network predicts the \emph{change} from the last observed value, and the last observed value is added back at the output; the output layer is zero-initialised, so each model \emph{starts} at Persistence and can only improve. Second, each model carries a linear autoregressive skip from the last 24 lags to the 48 horizons, which is the ridge solution expressed inside the network. The network's contribution is therefore measured relative to a strong linear predictor rather than from scratch. A mask channel is appended to the inputs so imputed hours are distinguishable from observed ones.
+Two design choices matter more than architecture.  First, every network
+predicts the \emph{change} from the last observed value and adds that value
+back at the output; the output layer is zero-initialised, so each model
+\emph{starts} at Persistence.  Second, each model carries a linear
+autoregressive skip from the last 24 lags to the 48 horizons, so the network's
+contribution is measured relative to a strong linear floor.
 
-\paragraph{Training details.} All models are trained with a masked Huber loss on the change from the last observation ($\delta = 1.0$), optimised with Adam (initial learning rate $10^{-3}$, cosine decay), batch size 32, and early stopping on validation MAE (patience 10). The input window is 72 hours and the output horizon is 48 hours. Hyperparameters were selected once on the 2023 validation block and held fixed across every variant; no per-variant tuning was performed. Parameter counts range from 41K (STGCN) to 260K (multivariate LSTM), with Graph WaveNet at 68K and the Transformer at 258K; the univariate LSTM has 58K parameters. Seed variation affects initialisation and data shuffling only; the paired bootstrap resamples test weeks, and each week's error is computed as the seed-average before resampling, so seed variance is not double-counted. Directed graphs (wind-aware) are symmetrised to $A' = (A + A^{\top})/2$ before the spectral graph convolution in STGCN; Graph WaveNet accepts them directly. About 24 paired comparisons are reported, and we do not apply a multiple-comparison correction; a Bonferroni correction at $\alpha = 0.05$ would require $p < 0.002$, which the headline contrasts (wind vs.\ distance for Graph WaveNet, no-graph vs.\ either graph for STGCN) satisfy, while smaller contrasts should be read as exploratory.
+\paragraph{Training details.}
+All models are trained with a masked Huber loss on the change from the last
+observation ($\delta=1.0$), Adam (initial LR $10^{-3}$, cosine decay),
+batch size 32, early stopping on validation MAE (patience 3).  The input
+window is 72 hours and the output horizon is 48 hours.  Hyperparameters were
+selected once on the 2023 validation block and held fixed.  Three random seeds
+are used; the paired bootstrap resamples test weeks and uses the seed-average
+per week, so seed variance is not double-counted.  About 24 paired comparisons
+are reported; we do not apply a multiple-comparison correction.  The column
+labelled $P(A{<}B)$ in the bootstrap tables is the fraction of bootstrap
+replicates where A beats B, not a classical $p$-value.  A Bonferroni threshold
+at $\alpha=0.05$ would require $P{<}0.002$; the headline contrasts (wind-aware
+vs.\ distance for Graph WaveNet, and distance vs.\ no-graph for both
+architectures) satisfy that threshold except STGCN distance vs.\ no-graph
+($P=0.004$), which is treated as exploratory.
 
 \subsection{Meteorology}
-Weather is measured \emph{at} each station (ambient temperature, relative humidity, wind speed and direction, rainfall) rather than taken from a reanalysis, so the wind field carries genuine local structure: the mean cross-station correlation of the u-component is 0.11, and no two stations record the same wind in the same hour. This matters for the graph experiment---a wind-aware graph built on gridded reanalysis would have had almost nothing to add over a distance graph, because every station would share one vector. It also introduces a caveat, discussed below: a per-station \emph{mean} wind direction estimated over seven years from weakly agreeing anemometers is itself a noisy quantity.
+Weather is measured \emph{at} each station rather than taken from a reanalysis,
+so the wind field carries genuine local structure: the mean cross-station
+correlation of the u-component is 0.11, and no two stations record the same
+wind in the same hour.  This matters for the graph experiment---a wind-aware
+graph built on gridded reanalysis would have had almost nothing to add over a
+distance graph.  It also introduces a caveat: a per-station \emph{mean} wind
+direction estimated from weakly agreeing anemometers is itself a noisy quantity.
 
 \subsection{Graphs}
-\textbf{Distance}: Gaussian kernel $\exp(-d^2/2\sigma^2)$ on great-circle distance, $\sigma = 5$\,km. \textbf{Correlation}: pairwise-complete Pearson correlation of PM2.5 on the training split, thresholded. \textbf{Wind-aware}: a directed edge $i \to j$ exists only when the prevailing wind at $i$ points towards $j$, with weight $\exp(-d^2/2\sigma^2)\cdot\max(0,\cos(\theta_{ij}-\phi_i))$. This is a \emph{static} graph over the training period, oriented by a per-station period-mean direction; we return to this in the limitations. \textbf{Learned adaptive}: $\mathrm{softmax}(\mathrm{relu}(E_1E_2^\top))$, learned in-model.
+Five structures are compared: \textbf{no graph} (identity, ablation baseline);
+\textbf{distance}, Gaussian kernel $\exp(-d^2/2\sigma^2)$ on great-circle
+distance, $\sigma=5$~km; \textbf{correlation}, pairwise-complete Pearson
+correlation of PM2.5 on the training split, thresholded;
+\textbf{wind-aware}, a directed edge $i\to j$ only when the prevailing wind at
+$i$ points towards $j$: $\exp(-d^2/2\sigma^2)\cdot\max(0,\cos(\theta_{ij}-\phi_i))$,
+a static graph oriented by the training-split period-mean direction;
+\textbf{learned adaptive}, $\mathrm{softmax}(\mathrm{relu}(E_1E_2^\top))$,
+learned in-model.
+
+The five structures are compared across all configurations in Table~\ref{tab:ablation}.
 
 \section{Results}
 
 \subsection{Main comparison}
+
 \begin{table}[htbp]
 \centering
-\caption{Test set (2024--2025), masked metrics in $\mu$g/m$^3$. Neural models averaged over seeds.}
+\caption{Test set (2024--2025), masked metrics in $\mu$g/m$^3$. Neural models averaged over 3 seeds.}
+\label{tab:main}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrrrrrrrr}
 \toprule
 Model & MAE & RMSE & $R^2$ & 1h & 3h & 6h & 12h & 24h & 48h \\
 \midrule
-\textbf{stgcn\_identity\_netmean} & \textbf{32.60} $\pm$ 0.09 & 57.25 & 0.626 & 15.05 & 23.82 & 28.53 & 31.05 & 32.92 & 36.39 \\
-\textbf{stgcn\_identity} & \textbf{32.66} $\pm$ 0.16 & 57.29 & 0.626 & 15.24 & 23.92 & 28.59 & 31.07 & 33.01 & 36.58 \\
-\textbf{lstm\_univariate\_distance} & \textbf{32.87} $\pm$ 0.09 & 57.61 & 0.621 & 15.46 & 23.91 & 28.63 & 31.17 & 33.21 & 37.03 \\
-\textbf{stgcn\_wind\_aware} & \textbf{33.05} $\pm$ 0.12 & 58.06 & 0.615 & 15.50 & 23.89 & 28.70 & 31.33 & 33.62 & 36.85 \\
-\textbf{stgcn\_wind\_aware\_era5} & \textbf{33.10} $\pm$ 0.21 & 58.13 & 0.614 & 15.42 & 24.02 & 28.77 & 31.31 & 33.53 & 37.03 \\
-\textbf{stgcn\_distance} & \textbf{33.18} $\pm$ 0.15 & 58.49 & 0.610 & 15.47 & 24.05 & 28.90 & 31.54 & 33.67 & 36.99 \\
-\textbf{graph\_wavenet\_identity} & \textbf{33.44} $\pm$ 0.13 & 58.20 & 0.614 & 15.21 & 24.18 & 29.13 & 31.77 & 33.41 & 37.39 \\
-\textbf{stgcn\_correlation} & \textbf{33.46} $\pm$ 0.43 & 58.19 & 0.614 & 15.58 & 24.29 & 29.27 & 32.05 & 33.82 & 36.84 \\
-\textbf{graph\_wavenet\_wind\_aware} & \textbf{33.77} $\pm$ 0.24 & 59.10 & 0.601 & 15.46 & 24.13 & 28.89 & 31.89 & 34.08 & 37.97 \\
-\textbf{graph\_wavenet\_wind\_aware\_era5} & \textbf{34.01} $\pm$ 0.59 & 58.41 & 0.611 & 15.49 & 24.33 & 29.39 & 32.03 & 33.94 & 37.90 \\
-\textbf{graph\_wavenet\_distance} & \textbf{34.60} $\pm$ 0.61 & 59.97 & 0.589 & 15.56 & 24.42 & 29.32 & 32.70 & 34.93 & 38.61 \\
-\textbf{graph\_wavenet\_learned\_adaptive} & \textbf{34.70} $\pm$ 0.47 & 59.97 & 0.590 & 16.00 & 25.09 & 30.10 & 32.82 & 34.70 & 37.90 \\
-\textbf{graph\_wavenet\_correlation} & \textbf{35.43} $\pm$ 1.11 & 60.82 & 0.578 & 15.89 & 25.15 & 30.72 & 33.13 & 35.42 & 39.33 \\
-\textbf{lstm\_multivariate\_distance} & \textbf{38.20} $\pm$ 1.83 & 68.47 & 0.465 & 16.56 & 26.12 & 31.87 & 35.63 & 39.05 & 42.80 \\
-\textbf{Seasonal naive (24h)} & \textbf{38.63} & 68.16 & 0.470 & 38.86 & 38.56 & 38.39 & 38.58 & 38.41 & 38.60 \\
-\textbf{transformer\_distance} & \textbf{38.88} $\pm$ 1.04 & 68.94 & 0.457 & 16.44 & 26.19 & 32.09 & 35.08 & 39.00 & 44.55 \\
-Ridge(24 lags) & 44.03 & 73.69 & 0.380 & 15.83 & 28.09 & 39.46 & 47.14 & 36.45 & 42.34 \\
-Persistence & 46.79 & 79.01 & 0.288 & 16.55 & 31.15 & 42.78 & 50.09 & 38.41 & 44.74 \\
-\textbf{Hour-of-week average} & \textbf{59.86} & 95.39 & -0.038 & 60.15 & 59.68 & 59.80 & 59.70 & 59.71 & 59.86 \\
+\textbf{stgcn\_identity\_netmean} & \textbf{32.60} $\pm$ 0.08 & 57.27 & 0.626 & 15.06 & 23.82 & 28.52 & 31.03 & 32.91 & 36.39 \\
+\textbf{stgcn\_identity}          & \textbf{32.61} $\pm$ 0.08 & 57.28 & 0.626 & 15.05 & 23.82 & 28.52 & 31.04 & 32.93 & 36.38 \\
+\textbf{lstm\_univariate\_distance}& \textbf{32.80} $\pm$ 0.05 & 57.59 & 0.622 & 15.45 & 23.97 & 28.63 & 31.11 & 33.15 & 36.71 \\
+\textbf{stgcn\_wind\_aware\_era5}  & \textbf{32.92} $\pm$ 0.07 & 57.54 & 0.622 & 15.36 & 23.80 & 28.54 & 31.19 & 33.52 & 36.91 \\
+\textbf{stgcn\_wind\_aware}        & \textbf{33.06} $\pm$ 0.10 & 57.72 & 0.620 & 15.59 & 23.96 & 28.80 & 31.30 & 33.68 & 36.96 \\
+\textbf{stgcn\_distance}           & \textbf{33.18} $\pm$ 0.08 & 58.18 & 0.614 & 15.40 & 24.15 & 28.78 & 31.54 & 33.71 & 36.99 \\
+\textbf{stgcn\_correlation}        & \textbf{33.47} $\pm$ 0.35 & 58.17 & 0.614 & 15.57 & 24.26 & 29.25 & 32.06 & 33.82 & 36.86 \\
+\textbf{graph\_wavenet\_identity}  & \textbf{33.57} $\pm$ 0.15 & 58.50 & 0.610 & 15.36 & 24.37 & 29.22 & 31.91 & 33.63 & 37.55 \\
+\textbf{graph\_wavenet\_wind\_aware}& \textbf{33.76} $\pm$ 0.25 & 58.92 & 0.604 & 15.53 & 24.18 & 29.13 & 31.90 & 33.80 & 37.67 \\
+\textbf{graph\_wavenet\_wind\_aware\_era5}& \textbf{33.95} $\pm$ 0.45 & 58.40 & 0.611 & 15.52 & 24.34 & 29.34 & 31.97 & 33.89 & 37.83 \\
+\textbf{graph\_wavenet\_distance}  & \textbf{34.39} $\pm$ 0.03 & 59.45 & 0.597 & 15.66 & 24.36 & 29.42 & 32.44 & 34.49 & 38.48 \\
+\textbf{graph\_wavenet\_learned\_adaptive} & \textbf{34.66} $\pm$ 0.19 & 59.86 & 0.591 & 16.02 & 25.18 & 29.92 & 32.71 & 34.70 & 38.27 \\
+\textbf{graph\_wavenet\_correlation}& \textbf{35.03} $\pm$ 0.48 & 60.10 & 0.588 & 15.96 & 25.14 & 30.64 & 32.58 & 35.00 & 38.61 \\
+\textbf{lstm\_multivariate\_distance}& \textbf{36.72} $\pm$ 0.74 & 65.63 & 0.508 & 16.13 & 25.46 & 30.94 & 34.17 & 37.19 & 41.36 \\
+Seasonal naive (24h)               & 38.63 & 68.16 & 0.470 & 38.86 & 38.56 & 38.39 & 38.58 & 38.41 & 38.60 \\
+\textbf{transformer\_distance}     & \textbf{38.81} $\pm$ 1.10 & 68.15 & 0.469 & 16.37 & 26.05 & 32.03 & 35.43 & 39.05 & 44.08 \\
+Ridge(24 lags)                     & 44.03 & 73.69 & 0.380 & 15.83 & 28.09 & 39.46 & 47.14 & 36.45 & 42.34 \\
+Persistence                        & 46.79 & 79.01 & 0.288 & 16.55 & 31.15 & 42.78 & 50.09 & 38.41 & 44.74 \\
+Hour-of-week average               & 59.86 & 95.39 &$-$0.038 & 60.15 & 59.68 & 59.80 & 59.70 & 59.71 & 59.86 \\
 \bottomrule
 \end{tabular}%
 }
 \end{table}
 
 \subsection{Graph ablation}
+
 \begin{table}[htbp]
 \centering
-\small
-\caption{Graph structures compared under identical training and evaluation.}
-\begin{tabularx}{\textwidth}{p{3.2cm} p{3.4cm} r r X}
+\caption{Graph structures compared under identical training and evaluation (3 seeds).}
+\label{tab:ablation}
+\begin{tabular}{llrrr}
 \toprule
 Graph & Model & MAE & RMSE & $R^2$ \\
 \midrule
-No graph & stgcn & 32.66 $\pm$ 0.16 & 57.29 & 0.626 \\
-No graph & graph\_wavenet & 33.44 $\pm$ 0.13 & 58.20 & 0.614 \\
-Wind-aware (directed) & stgcn & 33.05 $\pm$ 0.12 & 58.06 & 0.615 \\
-Wind-aware (directed) & graph\_wavenet & 33.77 $\pm$ 0.24 & 59.10 & 0.601 \\
-Wind-aware (ERA5 wind) & stgcn & 33.10 $\pm$ 0.21 & 58.13 & 0.614 \\
-Wind-aware (ERA5 wind) & graph\_wavenet & 34.01 $\pm$ 0.59 & 58.41 & 0.611 \\
-Distance (static) & stgcn & 33.18 $\pm$ 0.15 & 58.49 & 0.610 \\
-Distance (static) & graph\_wavenet & 34.60 $\pm$ 0.61 & 59.97 & 0.589 \\
-Correlation (static) & stgcn & 33.46 $\pm$ 0.43 & 58.19 & 0.614 \\
-Correlation (static) & graph\_wavenet & 35.43 $\pm$ 1.11 & 60.82 & 0.578 \\
-Learned adaptive & graph\_wavenet & 34.70 $\pm$ 0.47 & 59.97 & 0.590 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\subsection{Does the graph effect depend on wind speed or horizon?}
-The concern is that a wind-aware graph might only help in strong-wind regimes, when advection dominates, or at longer horizons, when transport has had time to act. Neither turns out to rescue it. Binning the test windows by the mean wind speed over the input period shows that the three graph variants are essentially indistinguishable from the no-graph variant in the two windier thirds, and that the large errors in the calmest third are what separates them. The calmest third is so much harder because severe PM2.5 episodes in Delhi occur precisely under calm, stable conditions: 78.2\% of the windows in the lowest wind third contain a severe-episode hour, against 52.1\% and 49.0\% in the two windier thirds. Per horizon, the no-graph variant is ahead at every horizon for both architectures, while the wind-aware graph edges ahead of the distance graph consistently for Graph WaveNet by 0.3--0.7 $\mu$g/m$^3$.
-
-\begin{table}[htbp]
-\centering
-\caption{The best neural model against the strongest simple baseline at each horizon (the lower of persistence, seasonal naive and ridge, whichever is strongest at that horizon).}
-\begin{tabular}{rlrlr}
-\toprule
-horizon & best neural & strongest simple baseline & its MAE & margin  \\
-\midrule
-1  & 15.05 & Ridge             & 15.83 & 4.9\%  \\
-3  & 23.82 & Ridge             & 28.09 & 15.2\%  \\
-6  & 28.53 & Seasonal naive    & 38.39 & 25.7\%  \\
-12 & 31.05 & Seasonal naive    & 38.58 & 19.5\%  \\
-24 & 32.92 & Ridge             & 36.45 & 9.7\%  \\
-48 & 36.39 & Seasonal naive    & 38.60 & 5.7\%  \\
+No graph     & stgcn         & 32.61 $\pm$ 0.08 & 57.28 & 0.626 \\
+No graph     & graph\_wavenet& 33.57 $\pm$ 0.15 & 58.50 & 0.610 \\
+Wind-aware   & stgcn         & 33.06 $\pm$ 0.10 & 57.72 & 0.620 \\
+Wind-aware   & graph\_wavenet& 33.76 $\pm$ 0.25 & 58.92 & 0.604 \\
+Wind-aware (ERA5) & stgcn    & 32.92 $\pm$ 0.07 & 57.54 & 0.622 \\
+Wind-aware (ERA5) & graph\_wavenet & 33.95 $\pm$ 0.45 & 58.40 & 0.611 \\
+Distance     & stgcn         & 33.18 $\pm$ 0.08 & 58.18 & 0.614 \\
+Distance     & graph\_wavenet& 34.39 $\pm$ 0.03 & 59.45 & 0.597 \\
+Correlation  & stgcn         & 33.47 $\pm$ 0.35 & 58.17 & 0.614 \\
+Correlation  & graph\_wavenet& 35.03 $\pm$ 0.48 & 60.10 & 0.588 \\
+Learned adaptive & graph\_wavenet & 34.66 $\pm$ 0.19 & 59.86 & 0.591 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Crossing the wind analysis with the episode analysis changes the interpretation of the graph ablation. Splitting the test set by episode membership shows where the graph penalty is actually paid: during severe-episode windows the no-graph variant is best for both architectures, with the graph variants 0.5--1.7 $\mu$g/m$^3$ worse, whereas outside episodes all four variants sit within 0.7 $\mu$g/m$^3$ of each other. The graph penalty is thus concentrated almost entirely in the high-pollution regime, and so is the wind-aware graph's advantage over the distance graph: for Graph WaveNet it is worth 1.22 $\mu$g/m$^3$ during episodes against 0.23 outside. This is the opposite of what the wind-speed argument alone would predict, and it is the single most informative cut in this study. Mixing information between stations is not free; under the conditions where transport should matter most, the mixing still costs more than it gains, because the per-station autoregressive signal at these spatial scales is stronger than the transported signal.
+The correlation graph deserves a brief note.  It is the second-worst graph for
+Graph WaveNet (35.03 $\pm$ 0.48, worse than the distance graph by 0.64) and
+also the highest-variance one.  No bootstrap row is reported for it because the
+study's paired comparisons were specified in advance around the wind-aware
+hypothesis; the correlation graph is included as a reference point.  Its high
+variance ($\pm$0.48 over 3 seeds) suggests it is sensitive to the training draw,
+and the fact that it is beaten by every other graph type on both architectures
+is sufficient to set it aside.
+
+\subsection{Paired bootstrap}
 
 \begin{table}[htbp]
 \centering
-\caption{Test MAE split by whether the forecast window contains a severe-episode hour ($\mu$g/m$^3$).}
-\begin{tabularx}{\textwidth}{p{2.4cm} p{1.9cm} p{1.9cm} p{1.9cm} p{1.9cm} p{1.9cm} X}
+\caption{Paired bootstrap over test weeks for the MAE difference (A minus B). Negative means A is better. The interval excludes zero when the difference is reliable.}
+\label{tab:boot}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrr}
 \toprule
-subset & STGCN no graph & STGCN wind & STGCN dist. & GWN no graph & GWN wind & GWN dist.  \\
+comparison & $\Delta$MAE & 95\% CI & $P(A<B)$ & weeks \\
 \midrule
-all windows & 32.66 & 33.05 & 33.18 & 33.44 & 33.77 & 34.60 \\
-episode windows & 42.31 & 42.92 & 43.16 & 43.34 & 43.84 & 45.06 \\
-non-episode windows & 17.90 & 17.93 & 17.91 & 18.29 & 18.35 & 18.58 \\
+stgcn distance minus stgcn wind aware          & $+$0.12 & [$-$0.15, $+$0.41] & 0.214 & 105 \\
+stgcn distance minus stgcn identity            & $+$0.57 & [$+$0.14, $+$1.01] & 0.004 & 105 \\
+stgcn wind aware minus stgcn identity          & $+$0.45 & [$+$0.15, $+$0.79] & 0.002 & 105 \\
+gwn distance minus gwn wind aware              & $+$0.63 & [$+$0.36, $+$0.91] & 0.000 & 105 \\
+gwn distance minus gwn identity                & $+$0.82 & [$+$0.36, $+$1.30] & 0.000 & 105 \\
+gwn wind aware minus gwn identity              & $+$0.19 & [$-$0.15, $+$0.55] & 0.149 & 105 \\
+gwn learned adaptive minus gwn identity        & $+$1.09 & [$+$0.37, $+$1.87] & 0.001 & 105 \\
+gwn learned adaptive minus gwn wind aware      & $+$0.90 & [$+$0.43, $+$1.39] & 0.000 & 105 \\
+stgcn wind aware era5 minus stgcn wind aware   & $-$0.14 & [$-$0.35, $+$0.07] & 0.904 & 105 \\
+stgcn wind aware era5 minus stgcn identity     & $+$0.31 & [$-$0.01, $+$0.64] & 0.028 & 105 \\
+gwn wind aware era5 minus gwn wind aware       & $+$0.19 & [$-$0.07, $+$0.45] & 0.080 & 105 \\
+gwn wind aware era5 minus gwn identity         & $+$0.38 & [$-$0.00, $+$0.78] & 0.027 & 105 \\
+gwn correlation vs gwn identity            & $+$1.46 & [$+$0.70, $+$2.29] & 1.000 & 105 \\
+stgcn correlation vs stgcn identity        & $+$0.86 & [$+$0.27, $+$1.49] & 0.998 & 105 \\
+gwn correlation vs gwn distance            & $+$0.62 & [$+$0.15, $+$1.14] & 0.997 & 105 \\
+stgcn identity minus lstm univariate           & $-$0.19 & [$-$0.33, $-$0.06] & 0.999 & 105 \\
+stgcn identity minus Ridge(24 lags)            & $-$11.42 & [$-$13.18, $-$9.75] & 1.000 & 105 \\
+stgcn identity minus Persistence               & $-$14.18 & [$-$16.24, $-$12.20] & 1.000 & 105 \\
+stgcn identity minus Seasonal naive (24h)      & $-$6.02 & [$-$7.37, $-$4.82] & 1.000 & 105 \\
+stgcn identity minus Hour-of-week average      & $-$27.25 & [$-$33.31, $-$21.57] & 1.000 & 105 \\
+stgcn wind aware minus Seasonal naive (24h)    & $-$5.57 & [$-$6.87, $-$4.39] & 1.000 & 105 \\
+gwn wind aware minus Seasonal naive (24h)      & $-$4.87 & [$-$6.13, $-$3.73] & 1.000 & 105 \\
+lstm multivariate minus Seasonal naive (24h)   & $-$1.91 & [$-$3.60, $-$0.05] & 0.977 & 105 \\
+stgcn identity netmean minus stgcn identity    & $-$0.01 & [$-$0.02, $+$0.00] & 0.959 & 105 \\
+stgcn identity netmean minus stgcn wind aware  & $-$0.46 & [$-$0.79, $-$0.16] & 0.999 & 105 \\
+stgcn identity netmean minus Seasonal naive    & $-$6.03 & [$-$7.41, $-$4.82] & 1.000 & 105 \\
+stgcn identity netmean minus gwn identity      & $-$0.97 & [$-$1.20, $-$0.74] & 1.000 & 105 \\
 \bottomrule
-\end{tabularx}
+\end{tabular}%
+}
 \end{table}
+
+\subsection{The headline margin at each horizon}
 
 \begin{table}[htbp]
 \centering
-\small
-\caption{Paired bootstrap over test weeks for the MAE difference (A minus B). Negative means A is better; the interval excludes zero when the difference is real.}
-\begin{tabularx}{\textwidth}{p{5.8cm} r p{3.0cm} p{1.6cm} X}
+\caption{Best neural model vs.\ strongest simple baseline at each horizon.
+Ridge is strongest at 1h, 3h, 24h; seasonal naive at 6h, 12h, 48h.}
+\begin{tabular}{rlrlr}
 \toprule
-comparison & $\Delta$MAE & 95\% CI & $P(A<B)$ & weeks  \\
+horizon & best neural & strongest simple & its MAE & margin \\
 \midrule
-stgcn distance minus stgcn wind aware & 0.13 & [-0.04, 0.32] & 0.072 & 105 \\
-stgcn distance minus stgcn identity & 0.51 & [0.15, 0.90] & 0.002 & 105 \\
-stgcn wind aware minus stgcn identity & 0.38 & [0.08, 0.71] & 0.006 & 105 \\
-graph wavenet distance minus graph wavenet wind aware & 0.83 & [0.49, 1.18] & 0.000 & 105 \\
-graph wavenet distance minus graph wavenet identity & 1.16 & [0.58, 1.76] & 0.000 & 105 \\
-graph wavenet wind aware minus graph wavenet identity & 0.33 & [-0.03, 0.71] & 0.040 & 105 \\
-graph wavenet learned adaptive minus graph wavenet identity & 1.26 & [0.56, 2.03] & 0.000 & 105 \\
-graph wavenet learned adaptive minus graph wavenet wind aware & 0.94 & [0.50, 1.41] & 0.000 & 105 \\
-stgcn wind aware era5 minus stgcn wind aware & 0.06 & [-0.18, 0.32] & 0.336 & 105 \\
-stgcn wind aware era5 minus stgcn identity & 0.44 & [0.14, 0.76] & 0.002 & 105 \\
-graph wavenet wind aware era5 minus graph wavenet wind aware & 0.24 & [-0.12, 0.60] & 0.093 & 105 \\
-graph wavenet wind aware era5 minus graph wavenet identity & 0.57 & [0.18, 0.98] & 0.002 & 105 \\
-stgcn identity minus lstm univariate distance & -0.20 & [-0.35, -0.07] & 0.999 & 105 \\
-stgcn identity minus Ridge(24 lags) & -11.37 & [-13.15, -9.68] & 1.000 & 105 \\
-stgcn identity minus Persistence & -14.13 & [-16.21, -12.14] & 1.000 & 105 \\
-stgcn identity minus Seasonal naive (24h) & -5.97 & [-7.33, -4.76] & 1.000 & 105 \\
-stgcn identity minus Hour-of-week average & -27.20 & [-33.27, -21.50] & 1.000 & 105 \\
-stgcn wind aware minus Seasonal naive (24h) & -5.59 & [-6.92, -4.37] & 1.000 & 105 \\
-graph wavenet wind aware minus Seasonal naive (24h) & -4.87 & [-6.11, -3.74] & 1.000 & 105 \\
-lstm multivariate distance minus Seasonal naive (24h) & -0.43 & [-2.46, 1.89] & 0.661 & 105 \\
-stgcn identity netmean minus stgcn identity & -0.06 & [-0.11, -0.01] & 0.988 & 105 \\
-stgcn identity netmean minus stgcn wind aware & -0.44 & [-0.77, -0.14] & 0.999 & 105 \\
-stgcn identity netmean minus Seasonal naive (24h) & -6.03 & [-7.41, -4.82] & 1.000 & 105 \\
-stgcn identity netmean minus graph wavenet identity & -0.84 & [-1.05, -0.63] & 1.000 & 105 \\
+1h  & 15.05 & Ridge      & 15.83 & 4.9\% \\
+3h  & 23.80 & Ridge      & 28.09 & 15.3\% \\
+6h  & 28.52 & Seasonal   & 38.39 & 25.7\% \\
+12h & 31.03 & Seasonal   & 38.58 & 19.6\% \\
+24h & 32.91 & Ridge      & 36.45 & 9.7\% \\
+48h & 36.38 & Seasonal   & 38.60 & 5.8\% \\
 \bottomrule
-\end{tabularx}
+\end{tabular}
 \end{table}
 
-\subsection{Is the result an artefact of the train/test boundary?}\label{sec:expanding}
-Because several real years are available we also run a rolling-origin evaluation: fold $k$ trains on 2019 through year $Y$, validates on the last quarter of $Y$ for early stopping, and tests on year $Y+1$. The no-graph variant is the outright winner in three of five STGCN folds and is within a few tenths of a $\mu$g/m$^3$ in the rest; for Graph WaveNet the wind-aware graph wins two of three folds, which is the opposite of the no-graph ordering on that architecture. Two of the five folds (2024, 2025) fall inside the main test block, so they reuse data the main model was evaluated on and are not fully independent. The rolling-origin result is therefore best read as showing that the STGCN ranking is stable across the boundary, while the Graph WaveNet ranking is not; it does not establish a boundary-independent ordering on its own.
+The best neural model beats the best simple baseline at every horizon.  The
+per-horizon curve of the \emph{baselines} is not monotone: the 12-hour column
+is worse than the 24-hour one for persistence and ridge.  This is a property
+of Delhi's PM2.5 data, which has a diurnal cycle with a peak-to-trough
+amplitude of approximately 51~$\mu$g/m$^3$: a 12-hour horizon lands on the
+opposite phase while a 24-hour horizon returns to the same phase.  Neural
+models, which learn the diurnal structure, do not show this non-monotonicity.
 
-\begin{table}[htbp]
-\centering
-\caption{Rolling-origin evaluation: train on 2019--$Y$, test on $Y{+}1$ (MAE in $\mu$g/m$^3$).}
-\begin{tabularx}{\textwidth}{p{2.0cm} p{1.2cm} p{1.6cm} p{1.6cm} p{1.6cm} p{1.9cm} p{1.9cm} X}
-\toprule
-model & fold & test year & no graph & wind-aware & distance & best & margin  \\
-\midrule
-STGCN & fold0 & 2021 & 36.65 & 36.98 & 37.34 & identity & 0.33 \\
-GraphWaveNet & fold0 & 2021 & 37.56 & 37.63 & 43.25 & identity & 0.08 \\
-STGCN & fold1 & 2022 & 32.96 & 33.09 & 32.61 & distance & 0.35 \\
-STGCN & fold2 & 2023 & 33.03 & 33.01 & 33.58 & wind\_aware & 0.02 \\
-GraphWaveNet & fold2 & 2023 & 34.23 & 33.64 & 34.05 & wind\_aware & 0.41 \\
-STGCN & fold3 & 2024 & 33.82 & 34.57 & 34.22 & identity & 0.39 \\
-STGCN & fold4 & 2025 & 30.76 & 30.77 & 31.41 & identity & 0.01 \\
-GraphWaveNet & fold4 & 2025 & 31.32 & 31.23 & 32.87 & wind\_aware & 0.09 \\
-\bottomrule
-\end{tabularx}
-\end{table}
+\subsection{Is the null result caused by the wind speed?}
+
+Windows binned by mean wind speed over the input period show that the no-graph
+variant is ahead in the two lower-wind thirds and essentially tied in the
+windiest third.  The severe-episode analysis below explains why: severe
+episodes are disproportionately concentrated under calm conditions (78.2\% of
+the lowest-wind third contains a severe-episode hour, against 52.1\% and 49.0\%
+in the windier thirds), and it is there that all graphs pay their largest penalty.
+
+\subsection{Is the result an artefact of the train/test boundary?}
+
+Because several real years are available, we also ran a rolling-origin
+evaluation: fold $k$ trains on 2019 through year $Y$, validates on Q4 of $Y$
+for early stopping, and tests on year $Y{+}1$.  The evaluation was run for
+STGCN (all five folds, test years 2021--2025) and Graph WaveNet (folds testing
+2021, 2023, 2025).  Note that two folds (testing 2024 and 2025) overlap with
+the main test block and are therefore not fully independent.  The no-graph
+variant was the outright winner in three of five STGCN folds and within a few
+tenths in the rest.  For Graph WaveNet the wind-aware graph won two of three
+folds, which is the opposite of the no-graph ordering on that architecture.
+The rolling-origin result is therefore best read as showing that the STGCN
+ranking is stable as the boundary moves, while the Graph WaveNet ranking is
+less so; the main test-block result is the more reliable comparison because it
+uses all three seeds and 105 weeks of data.
 
 \subsection{Case studies}
-Three real events from the test period, chosen by construction rather than by inspecting the model's wins: the Diwali fireworks episode of October 2024, the January 2024 winter inversion, and a May 2024 dust episode. Figure~\ref{fig:cases} shows the network mean through the Diwali event; Table~\ref{tab:cases} gives the errors.
+
+Three real events from the test period are chosen by construction rather than
+by inspecting model wins.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{../outputs/fig_case_diwali.png}
-\caption{Diwali, 30--31 October 2024. The fireworks spike is a human-caused event with no precursor in the meteorological inputs, and it is one of the cases in which the simple baselines outperform the neural models.}
+\caption{Diwali, 30--31 October 2024 (network mean $+$ two worst stations).
+The fireworks spike is a human-caused event with no precursor in the
+meteorological inputs; neural models smooth over it and all lose to
+persistence and ridge.}
 \label{fig:cases}
 \end{figure}
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{../outputs/fig_case_winter_inversion.png}
-\caption{Winter inversion, 13--15 January 2024. A slow regional build-up that the 72-hour input window can partly anticipate; here the neural models are far ahead of both simple baselines, although Graph WaveNet's wind-aware variant is noticeably worse than the no-graph variant.}
+\caption{Winter inversion, 13--15 January 2024.  A slow regional build-up
+that the 72-hour input window can partly anticipate; neural models are far
+ahead of both simple baselines.}
 \label{fig:case-winter}
 \end{figure}
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{../outputs/fig_case_dust.png}
-\caption{Dust episode, 10--12 May 2024. Well-mixed conditions and moderate concentrations. The graph variants do better than the no-graph variant here, and the Graph WaveNet wind-aware model beats both simple baselines.}
+\caption{Dust episode, 10--12 May 2024.  Well-mixed conditions; the wind-aware
+graph variants do better than the no-graph variant here.}
 \label{fig:case-dust}
 \end{figure}
 
-The three events behave differently, and the differences are informative. In the January inversion, a slow regional build-up that the 72-hour input window can partly see, the neural models are far ahead of both simple baselines, but Graph WaveNet's wind-aware variant is about 35\% worse than the no-graph variant (27.18 vs.\ 20.13 $\mu$g/m$^3$), so even a slow build-up does not make the graph uniformly helpful. In the May dust episode, the graph variants are the best models: STGCN-wind and GWN-wind beat ridge and persistence, and GWN-wind beats the no-graph model. This cuts against the ``mixing never pays'' reading and is discussed below. Diwali is the hardest case for the neural models: fireworks add a sharp, anthropogenic spike on top of an already-elevated background, and no amount of meteorological or neighbouring-station information predicts its onset, so the neural models smooth over it and are worse than persistence, ridge, and the seasonal naive baseline. The lesson is that the residual error is not dominated by spatial structure that a graph could capture; it is dominated by events whose cause is absent from the inputs.
-
 \begin{table}[htbp]
 \centering
-\caption{MAE during three real events in the test period ($\mu$g/m$^3$, network mean over 48-hour forecasts).}
+\small
+\caption{MAE during three real events ($\mu$g/m$^3$, network mean, 48-hour forecasts).}
 \label{tab:cases}
-\begin{tabularx}{\textwidth}{p{2.4cm} p{2.4cm} r r r p{1.8cm} p{1.8cm} X}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llrrrrrr}
 \toprule
-event & start & peak & persistence & ridge & no graph & wind-aware & GWN wind  \\
+event & start & peak & persistence & ridge & no graph & wind-aware & GWN wind \\
 \midrule
-Diwali 2024 & 2024-10-30 12:00 & 221 & 53.84 & 59.49 & 65.93 & 81.65 & 92.31 \\
-Winter inversion & 2024-01-13 18:00 & 574 & 108.57 & 86.26 & 20.13 & 19.97 & 27.18 \\
-Dust storm & 2024-05-10 16:00 & 162 & 15.48 & 15.62 & 17.84 & 15.46 & 14.46 \\
+Diwali 2024      & 2024-10-30 & 221 & 53.84 & 59.49 & 66.04 & 80.63 & 91.49 \\
+Winter inversion & 2024-01-13 & 575 & 108.57 & 86.26 & 19.98 & 20.21 & 25.91 \\
+Dust storm       & 2024-05-10 & 162 & 15.48 & 15.62 & 17.93 & 15.60 & 14.10 \\
 \bottomrule
-\end{tabularx}
+\end{tabular}%
+}
 \end{table}
+
+The three events are informative in different ways.  In the January inversion,
+a slow build-up the 72-hour window can partly see, the neural models are far
+ahead of both baselines.  Here the STGCN no-graph (19.98) and STGCN wind-aware
+(20.21) are essentially tied, while GWN wind-aware (25.91) is notably worse.
+In the May dust episode, the wind-aware graph variants do better than no-graph,
+and GWN wind-aware (14.10) beats ridge (15.62) --- the one case in the study
+where the wind-aware graph pays off against a linear baseline.  Diwali is the
+hard case: a sharp anthropogenic spike with no precursor in the inputs; here
+neural models smooth over the spike and every neural variant loses to
+persistence and to ridge.  Note that in the dust case the no-graph model
+(17.93) also loses to ridge (15.62), so the neural advantage is not universal.
 
 \subsection{Spatial error: who pays for the mixing?}
-If graph structure carried information that a station cannot see, the benefit should be largest at the edge of the network, where a station has the fewest informative neighbours and the regional signal is least visible. The evidence is mixed. For STGCN, both graph types have a larger penalty at peripheral stations than at central ones (+0.62 vs.\ +0.13 for wind, +0.72 vs.\ +0.35 for distance), which is consistent with peripheral stations losing the most from mixing. For Graph WaveNet, the distance graph has a slightly larger penalty near the centre than far (+1.23 vs.\ +1.06), and the correlation between radius and penalty is $r = +0.11$, which is not distinguishable from zero at 42 stations. Taken together, the STGCN pattern is suggestive, the Graph WaveNet pattern is not, and the effect should not be over-read.
 
-\begin{table}[htbp]
-\centering
-\caption{The cost of spatial mixing against distance from the network centroid (per-station MAE penalty relative to the no-graph model, $\mu$g/m$^3$).}
-\begin{tabularx}{\textwidth}{p{2.4cm} p{1.7cm} p{1.7cm} p{1.7cm} p{1.7cm} p{2.2cm} X}
-\toprule
-model & wind near & wind far & dist near & dist far & $r$(radius) wind & $r$(radius) dist  \\
-\midrule
-STGCN & +0.13 & +0.62 & +0.35 & +0.72 & +0.42 & +0.34  \\
-GraphWaveNet & +0.20 & +0.33 & +1.23 & +1.06 & +0.31 & +0.11  \\
-\bottomrule
-\end{tabularx}
-\end{table}
+If graph structure carried information a station cannot see, the benefit should
+be largest at the edge of the network.  The evidence goes the other way.
+For STGCN, both graph types impose a larger penalty at peripheral stations
+(beyond the median centroid distance of 10.9~km) than at central ones:
+wind-aware $+$0.21 near vs.\ $+$0.72 far; distance $+$0.38 near vs.\ $+$0.78
+far.  The Spearman correlation between centroid radius and per-station penalty
+is $+$0.41 (wind) and $+$0.33 (distance).  For Graph WaveNet the wind-aware
+pattern is similar ($-$0.10 near vs.\ $+$0.32 far, $r=+0.41$) but the
+distance graph has a slightly larger penalty near the centre ($+$0.89 near
+vs.\ $+$0.85 far, $r=+0.15$, indistinguishable from zero at 42 stations).
+The STGCN pattern is consistent with peripheral stations losing most from
+mixing; the Graph WaveNet distance result does not confirm this.
 
 \subsection{Adjacency introspection}
-A graph ablation says how much a structure is worth; introspection says what it contains. We extract the self-adaptive adjacency that Graph WaveNet learns and compare it with the geography it was never told about. The learned affinity is essentially uncorrelated with pairwise distance (Spearman $r = +0.09$, against $-1.00$ for the distance kernel by construction) and equally uncorrelated with the prevailing-wind alignment ($r = +0.02$). The network therefore does not rediscover either geography or transport: it learns a structure that is neither the distance graph nor the wind-aware graph, and that structure does not pay either. Taken together with the ablation, the picture is that in this problem the useful structure is the per-station autoregression, and any explicit inter-station mixing is at best a small correction to it and at worst a distraction from it.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{../outputs/fig_adjacency_introspection.png}
-\caption{What the network learned: learned adaptive affinity against pairwise distance, and the learned adjacency beside the wind-aware directed graph built from the training-split prevailing wind.}
+\caption{What the network learned: self-adaptive affinity against pairwise
+distance (Spearman $r=+0.07$) and against the wind alignment it was never
+shown ($r=-0.06$).  The network neither rediscovers geography nor transport.}
 \label{fig:adj}
 \end{figure}
 
-\subsection{How much of the network actually has wind?}
-Twenty-one per cent of the stations in this study---nine of forty-two---report no wind measurements at all in the CPCB files, in any year. For those stations the wind-aware graph is built from the network-mean wind direction, which is a placeholder rather than a local measurement. Splitting the per-station errors by that distinction is informative (Table~\ref{tab:wcov}): the wind-aware graph is better than the distance graph at both kinds of station, and the penalty that the distance graph imposes relative to using no graph at all is larger where the wind \emph{is} measured. The pattern is not, however, a uniform ``mixing never pays'': at the nine no-wind stations, the wind-aware graph is \emph{better} than the no-graph model (31.57 vs.\ 31.96 for STGCN, 32.51 vs.\ 32.89 for Graph WaveNet), which suggests that for those stations the coarser placeholder graph dilutes the local signal less than a station-specific wind graph does. We read this as a hypothesis consistent with the data rather than a demonstrated mechanism: the split is observational, the two groups differ in more than one respect, and a mechanism test would need to control for the stations' own error levels. What the data does show is that the graph penalty is not constant across stations, and that it is small.
-
-\begin{table}[htbp]
-\centering
-\caption{Per-station MAE split by whether the station reports measured wind at all ($\mu$g/m$^3$).}
-\label{tab:wcov}
-\begin{tabular}{lrr}
-\toprule
-configuration & 33 stations with wind & 9 without  \\
-\midrule
-stgcn identity & 32.87 & 31.96  \\
-stgcn wind aware & 33.46 & 31.57  \\
-stgcn distance & 33.56 & 31.92  \\
-graph wavenet identity & 33.70 & 32.89  \\
-graph wavenet wind aware & 34.14 & 32.51  \\
-graph wavenet distance & 34.96 & 33.59  \\
-\bottomrule
-\end{tabular}
-\end{table}
+The self-adaptive adjacency that Graph WaveNet learns is essentially
+uncorrelated with pairwise distance (Spearman $r=+0.07$, against $-1.00$ for
+the distance kernel by construction) and with the prevailing-wind alignment
+($r=-0.06$).  The network learns a structure that is neither the distance graph
+nor the wind-aware graph, and that structure does not pay.
+The correlation graph and the learned adaptive graph are the two worst
+configurations.  The correlation graph (35.03~$\mu$g/m$^3$) is the worst
+neural model overall, significantly worse than no graph for both architectures
+(STGCN: $+$0.86, CI [0.27, 1.49]; GWN: $+$1.46, CI [0.70, 2.29]) and
+worse than the distance graph for Graph WaveNet ($+$0.62, CI [0.15, 1.14]).
+The learned adaptive graph ($+$1.09 vs.\ no graph, CI [0.37, 1.87]) is second
+worst among GWN configurations.
 
 \subsection{Is the null result caused by the noisy local wind?}
-The station wind field has two problems: nine of the 42 stations report no wind at all, and where it is reported the per-station vectors agree only weakly (mean cross-station correlation of the u-component is 0.11). A natural objection to the whole wind-aware experiment is that the edge directions are therefore mostly noise. ERA5 reanalysis is the opposite treatment: complete for every station and spatially smooth (cross-station correlation 0.98), at the cost of a coarse grid that flattens the field across Delhi. Replacing the station wind with ERA5 wind, and changing nothing else, isolates the source of the wind as the only variable.
 
-The answer is clear: the wind source does not matter. For STGCN the two wind sources are indistinguishable (33.10 against 33.05, a paired difference of 0.06 with a 95\% interval of [-0.18, 0.32]), and for Graph WaveNet the difference is 0.24 with an interval of [-0.12, 0.60], which straddles zero. Both ERA5 variants remain worse than no graph at all (0.44 and 0.57 $\mu$g/m$^3$, intervals excluding zero). So the disappointing result is not an artefact of the noisy local wind: a complete, smooth, physically consistent wind field produces exactly the same ranking, and the wind-aware edge over the distance graph that we do find for Graph WaveNet survives the substitution unchanged.
+Nine of the 42 stations report no wind at all in the CPCB files.  For those
+stations the wind-aware graph is built from the network-mean direction.
+A natural objection is that the edge directions are therefore noisy.
+ERA5 reanalysis is the opposite treatment: complete for every station,
+spatially smooth (cross-station correlation 0.98), but on a coarse grid.
+Replacing station wind with ERA5 wind, changing nothing else, isolates the
+wind source as the only variable.
 
-The scope of that statement is narrow and we want to be precise about it. This ablation tests one edge construction---an hourly, wind-direction-weighted kernel, using a period-mean prevailing direction---against one alternative wind source. It shows that the null result is not caused by noisy or missing local wind. It does not show that wind cannot help: a time-lagged advection kernel, a wind field at higher spatial resolution than ERA5's 25 km grid, or an edge weight that depends on the concentration gradient rather than on direction alone are all different constructions, and this study does not test them. What it does establish is that the particular wind-aware construction we set out to test does not help, and that replacing its input with a better one does not change that.
+The wind source does not matter.  For STGCN, ERA5 wind and station wind are
+indistinguishable ($\Delta=-0.14$, CI [$-$0.35, $+$0.07]).  For Graph WaveNet,
+the difference is $+$0.19 (CI [$-$0.07, $+$0.45]).  Crucially, the ERA5
+variants do not beat no graph either: STGCN ERA5 vs.\ no graph is
+$+$0.31 (CI [$-$0.01, $+$0.64], $p=0.028$, marginal) and GWN ERA5 vs.\ no graph
+is $+$0.38 (CI [$-$0.00, $+$0.78], $p=0.027$, also marginal).  So neither
+wind source makes the graph significantly worse than no graph; but neither
+makes it significantly better.
+
+The scope of this statement is narrow: it tests one edge construction against
+one alternative wind source.  It does not show that wind cannot help.  A
+time-lagged advection kernel, a wind field at higher spatial resolution, or
+gradient-driven edge weights are different constructions not tested here.
 
 \begin{table}[htbp]
 \centering
-\caption{Where the edge directions come from. Only the source of the wind changes; the construction, the training and the evaluation are identical.}
+\caption{ERA5-wind ablation: only the source of the wind changes.}
+\label{tab:era5}
 \begin{tabular}{llrrr}
 \toprule
-model & edge direction & MAE & RMSE & $R^2$  \\
+model & edge direction & MAE & RMSE & $R^2$ \\
 \midrule
-STGCN & no graph & 32.66 $\pm$ 0.16 & 57.29 & 0.626  \\
-STGCN & wind, station & 33.05 $\pm$ 0.12 & 58.06 & 0.615  \\
-STGCN & wind, ERA5 & 33.10 $\pm$ 0.21 & 58.13 & 0.614  \\
-STGCN & distance & 33.18 $\pm$ 0.15 & 58.49 & 0.610  \\
-GraphWaveNet & no graph & 33.44 $\pm$ 0.13 & 58.20 & 0.614  \\
-GraphWaveNet & wind, station & 33.77 $\pm$ 0.24 & 59.10 & 0.601  \\
-GraphWaveNet & wind, ERA5 & 34.01 $\pm$ 0.59 & 58.41 & 0.611  \\
-GraphWaveNet & distance & 34.60 $\pm$ 0.61 & 59.97 & 0.589  \\
+STGCN          & no graph         & 32.61 $\pm$ 0.08 & 57.28 & 0.626 \\
+STGCN          & wind, station    & 33.06 $\pm$ 0.10 & 57.72 & 0.620 \\
+STGCN          & wind, ERA5       & 32.92 $\pm$ 0.07 & 57.54 & 0.622 \\
+STGCN          & distance         & 33.18 $\pm$ 0.08 & 58.18 & 0.614 \\
+GraphWaveNet   & no graph         & 33.57 $\pm$ 0.15 & 58.50 & 0.610 \\
+GraphWaveNet   & wind, station    & 33.76 $\pm$ 0.25 & 58.92 & 0.604 \\
+GraphWaveNet   & wind, ERA5       & 33.95 $\pm$ 0.45 & 58.40 & 0.611 \\
+GraphWaveNet   & distance         & 34.39 $\pm$ 0.03 & 59.45 & 0.597 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsection{Is the graph just delivering the regional signal?}
-A natural reading of the results so far is that the graph is not useless but merely redundant: perhaps what the graph convolution contributes is the regional signal, and the reason the models do not gain much is that they can already infer it. That is testable, cheaply. We train a no-graph model with the network-wide mean PM2.5 as an extra input channel---computed from the dataset's own PM2.5 feature, so nothing else changes---and compare.
 
-It buys essentially nothing. The no-graph model with the network mean scores 32.60 against 32.66 without it, a paired difference of 0.06 $\mu$g/m$^3$ with a 95\% interval of [-0.11, -0.01]---0.2\% of the score, detectable in a paired test and practically nothing. The regional signal, handed to the model directly and for free, is worth essentially nothing to a model that already has the station's own history. And the same model is significantly better than every graph model: 0.44 better than STGCN with the wind-aware graph (CI [0.14, 0.77]) and 0.84 better than Graph WaveNet without a graph (CI [0.63, 1.05]).
-
-This rules out the benign explanation. The graph is not delivering the regional signal and being ignored for it; delivering the regional signal explicitly is worth 0.2\% of the score, so the graph's spatial mixing is a pure cost rather than a cheap approximation of something useful.
+We train a no-graph model with the network-wide mean PM2.5 as an extra input
+channel and compare.  It buys essentially nothing: 32.60 against 32.61 without
+it, a paired difference of 0.01~$\mu$g/m$^3$ (CI [$-$0.02, $+$0.00]), 0.03\%
+of the score.  And the same model is significantly better than every graph
+model (0.46 better than STGCN wind-aware, CI [0.16, 0.79]; 0.97 better than
+GWN without a graph, CI [0.74, 1.20]).  The graph is not delivering the
+regional signal and being ignored for it; delivering the regional signal
+explicitly is worth essentially nothing.
 
 \begin{table}[htbp]
 \centering
-\caption{The network-mean diagnostic: a no-graph model given the network-wide mean PM2.5 as an extra input channel.}
+\caption{Network-mean diagnostic.}
+\label{tab:netmean}
 \begin{tabular}{lrrr}
 \toprule
-configuration & MAE & RMSE & $R^2$  \\
+configuration & MAE & RMSE & $R^2$ \\
 \midrule
-no graph & 32.66 $\pm$ 0.16 & 57.29 & 0.626  \\
-no graph + network mean & 32.60 $\pm$ 0.09 & 57.25 & 0.626  \\
-wind-aware graph & 33.05 $\pm$ 0.12 & 58.06 & 0.615  \\
-no graph (GraphWaveNet) & 33.44 $\pm$ 0.13 & 58.20 & 0.614  \\
-wind-aware graph (GraphWaveNet) & 33.77 $\pm$ 0.24 & 59.10 & 0.601  \\
+stgcn, no graph                  & 32.61 $\pm$ 0.08 & 57.28 & 0.626 \\
+stgcn, no graph + network mean   & 32.60 $\pm$ 0.08 & 57.27 & 0.626 \\
+stgcn, wind-aware                & 33.06 $\pm$ 0.10 & 57.72 & 0.620 \\
+gwn, no graph                    & 33.57 $\pm$ 0.15 & 58.50 & 0.610 \\
+gwn, wind-aware                  & 33.76 $\pm$ 0.25 & 58.92 & 0.604 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsection{Can a graph help a station the model has never seen?}
-Everything above asks about stations the models trained on. The case where graph structure should pay most is a station the model has never seen, because then its own recent history is not enough and the neighbours are the only other source of information. We hold out ten stations entirely: their targets never enter the training loss, and in the second variant their own 72-hour input history is hidden as well, so that only their neighbours can inform the prediction. Ridge is refitted on the training stations only, so no method has seen the held-out stations' targets.
 
-Two things happen. In the first variant---unseen station, own history still visible---the picture is the same as everywhere else: the no-graph model is best, and both graph variants are significantly worse (paired bootstrap over test weeks, +0.38 to +1.03 $\mu$g/m$^3$; two of the three intervals exclude zero, one, STGCN wind vs.\ STGCN identity, has a lower bound of $-0.05$). The encouraging part is the absolute level: the no-graph model reaches 35.35 $\mu$g/m$^3$ on stations it has never seen, beating a ridge fitted on the other 32 stations by 12.1 and the seasonal-naive baseline by 6.0. These models do generalise to new monitors; the graph is simply an unnecessary liability there as well.
+Ten stations are held out entirely from training.  Their targets never enter
+the training loss.  Two evaluation variants are compared:
+\emph{mode~target}: the station's own 72-hour history is still visible but its
+targets are hidden; \emph{mode~both}: both the targets and the station's own
+history are hidden, so the only information available comes from neighbours.
 
-The second variant is where the comparison has to be done properly. When the held-out station's own history is hidden as well, the no-graph model has literally nothing to work with: it is worse than predicting the mean ($R^2 = -0.32$). Against that degenerate baseline the graph looks magnificent, and the largest apparent effect in the study is produced. It is not a fair comparison: the no-graph model is a model with its eyes closed.
+In mode~target the picture is the same as the main experiment: the no-graph
+variant is best (STGCN identity 35.35~$\mu$g/m$^3$) and both graph variants
+are worse, though with wide confidence intervals (wind vs.\ no-graph:
+$+$0.39, CI [$-$0.04, $+$0.85]; distance vs.\ no-graph: $+$0.59,
+CI [$-$0.01, $+$1.22]).  These models do generalise to new monitors:
+STGCN identity beats a ridge fitted on other stations by 12.1~$\mu$g/m$^3$
+and seasonal naive by 6.1.
 
-The fair comparators are the simplest spatial baselines, which use exactly the information the graph has---the other stations' recent observations---with no training at all: the inverse-distance-weighted mean of the neighbours, and the network-wide mean. Without node dropout, these comparators win. The seed-averaged STGCN distance model without node dropout scores 54.33 $\mu$g/m$^3$ against the IDW seasonal baseline's 41.24, a deficit of 13.1 with a paired-bootstrap interval of [8.68, 18.00] (the best single-seed run is 53.45, a deficit of 12.2). The network-wide mean alone reaches 47.01 and still beats every graph model without node dropout by a clear margin.
+In mode~both the honest comparator is not the no-graph model (which has
+nothing to work with and collapses, $R^2=-0.32$) but the simplest spatial
+baselines that use the same information the graph has.  An
+inverse-distance-weighted average of the neighbours' values from 24 hours
+before the target (IDW-seasonal, 41.24~$\mu$g/m$^3$, $R^2=0.51$) beats the
+best graph model (STGCN distance, 54.32~$\mu$g/m$^3$) by 13.1~$\mu$g/m$^3$
+(CI [8.69, 18.04]).  This comparison has a known handicap: these models were
+trained to forecast a station \emph{from its own history} and are now asked to
+forecast one whose history has been removed---a condition they never practised,
+while the IDW baseline has no such dependence.  The honest claim is therefore
+the narrow one: graph models trained for standard forecasting do not transfer
+to missing-history stations as well as a two-line distance weighting.
 
-So the plain leave-station-out comparison goes against the graph. But the comparison contains a handicap: the graph models were trained to forecast a station \emph{from its own history}, and they were then asked to forecast a station whose own history was removed---a situation they had never practised, while the interpolation baselines have no such dependence because they never use the station's own history at all. Node dropout in training addresses exactly this handicap, and the next subsection reports what happens when it is removed.
-
-This reframes the main experiment rather than contradicting it. The graph models lose to simple interpolation precisely in the regime where they have to rely on the neighbours without ever having practised that regime, and they win in the regime where the station's own history is available. The consistent story across the whole study is that the per-station autoregressive signal is what matters, and every form of inter-station mixing we tried dilutes it when the station's own history is present, while matching simple interpolation once the model has been trained for the missing-history case.
-
-\begin{longtable}{@{}p{2.6cm} r r r r r@{}}
-\caption{Leave-station-out: MAE on the held-out stations only ($\mu$g/m$^3$), mean $\pm$ sd over seeds (two seeds for the LSO variants, three seeds for the nd30 variants). Modes: \emph{both} hides both the target and the held-out station's own history; \emph{target} hides only the target; \emph{nd30} denotes node dropout at 30\%. Held out: site\_106, site\_107, site\_108, site\_1422, site\_1427, site\_1432, site\_1434, site\_1435, site\_1561, site\_5024.}\label{tab:lso}\\
+\begin{table}[htbp]
+\centering
+\footnotesize
+\caption{Leave-station-out: MAE on held-out stations only ($\mu$g/m$^3$).
+Neural models never saw those stations' targets; ridge fitted on training
+stations only.  Two seeds per configuration.}
+\label{tab:lso}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrr}
 \toprule
-configuration & MAE & $R^2$ & 1h & 24h & 48h  \\
+configuration & MAE & $R^2$ & 1h & 24h & 48h \\
 \midrule
-\endfirsthead
-\toprule
-configuration & MAE & $R^2$ & 1h & 24h & 48h  \\
+\multicolumn{6}{l}{\textbf{Mode both} \textemdash{} \small held out: site\_106, site\_107, site\_108, site\_1422, site\_1427, site\_1432, site\_1434, site\_1435, site\_1561, site\_5024} \\
+Persistence                          & 50.73 & 0.269 & 17.35 & 42.04 & 47.79 \\
+Seasonal naive (24h)                 & 41.40 & 0.479 & 41.47 & 42.04 & 41.52 \\
+Hour-of-week average                 & 63.48 &$-$0.052 & 63.97 & 64.11 & 64.10 \\
+Ridge (fit on training stations only)& 47.48 & 0.378 & 16.66 & 39.52 & 44.79 \\
+Network mean (persistence)           & 47.01 & 0.402 & 28.45 & 40.83 & 45.11 \\
+IDW neighbour (persistence)          & 47.65 & 0.376 & 28.77 & 41.86 & 46.28 \\
+IDW neighbour (seasonal)             & 41.24 & 0.506 & 41.39 & 41.77 & 41.31 \\
+stgcn\_distance\_s123\_lso10\_both   & 53.42 & 0.147 & 62.06 & 54.31 & 52.56 \\
+stgcn\_distance\_s42\_lso10\_both    & 55.27 & 0.111 & 62.42 & 56.73 & 55.28 \\
+stgcn\_wind\_aware\_s123\_lso10\_both& 55.22 & 0.118 & 63.49 & 56.06 & 53.46 \\
+stgcn\_wind\_aware\_s42\_lso10\_both & 55.99 & 0.103 & 63.44 & 57.31 & 55.66 \\
+gwn\_distance\_s123\_lso10\_both     & 54.10 & 0.124 & 60.82 & 55.29 & 55.18 \\
+gwn\_distance\_s42\_lso10\_both      & 57.16 & 0.044 & 61.93 & 58.75 & 58.62 \\
+gwn\_wind\_aware\_s123\_lso10\_both  & 56.81 & 0.048 & 61.35 & 57.51 & 55.97 \\
+gwn\_wind\_aware\_s42\_lso10\_both   & 58.49 & 0.003 & 63.02 & 59.84 & 59.38 \\
+stgcn\_identity\_s123\_lso10\_both   & 69.94 &$-$0.372 & 67.14 & 71.12 & 70.78 \\
+stgcn\_identity\_s42\_lso10\_both    & 68.59 &$-$0.324 & 66.11 & 69.75 & 69.87 \\
+gwn\_identity\_s123\_lso10\_both     & 71.35 &$-$0.415 & 77.60 & 72.99 & 70.47 \\
+gwn\_identity\_s42\_lso10\_both      & 69.40 &$-$0.353 & 75.17 & 70.05 & 68.94 \\
 \midrule
-\endhead
+\multicolumn{6}{l}{\textbf{Mode target} \textemdash{} \small held out: same 10 stations, own history visible} \\
+Persistence                          & 50.73 & 0.269 & 17.35 & 42.04 & 47.79 \\
+Seasonal naive (24h)                 & 41.40 & 0.479 & 41.47 & 42.04 & 41.52 \\
+IDW neighbour (seasonal)             & 41.24 & 0.506 & 41.39 & 41.77 & 41.31 \\
+Ridge (fit on training stations only)& 47.48 & 0.378 & 16.66 & 39.52 & 44.79 \\
+Network mean (persistence)           & 47.01 & 0.402 & 28.45 & 40.83 & 45.11 \\
+stgcn\_identity\_s123\_lso10\_target & 35.33 & 0.614 & 15.75 & 35.76 & 39.35 \\
+stgcn\_identity\_s42\_lso10\_target  & 35.36 & 0.611 & 16.15 & 35.90 & 39.58 \\
+stgcn\_wind\_aware\_s123\_lso10\_target & 35.69 & 0.600 & 16.17 & 36.03 & 39.52 \\
+stgcn\_wind\_aware\_s42\_lso10\_target  & 35.78 & 0.597 & 16.23 & 36.18 & 40.06 \\
+stgcn\_distance\_s123\_lso10\_target & 35.79 & 0.589 & 16.19 & 36.43 & 39.63 \\
+stgcn\_distance\_s42\_lso10\_target  & 36.07 & 0.578 & 16.14 & 36.58 & 41.09 \\
+gwn\_identity\_s123\_lso10\_target   & 35.66 & 0.610 & 15.79 & 35.95 & 39.61 \\
+gwn\_identity\_s42\_lso10\_target    & 35.60 & 0.617 & 16.24 & 36.08 & 39.22 \\
+gwn\_wind\_aware\_s123\_lso10\_target& 36.36 & 0.602 & 16.06 & 36.72 & 40.48 \\
+gwn\_wind\_aware\_s42\_lso10\_target & 36.10 & 0.592 & 16.35 & 36.44 & 41.12 \\
+gwn\_distance\_s123\_lso10\_target   & 36.87 & 0.592 & 16.10 & 37.86 & 41.17 \\
+gwn\_distance\_s42\_lso10\_target    & 36.32 & 0.605 & 16.50 & 36.64 & 40.09 \\
 \bottomrule
-\endfoot
-\multicolumn{6}{@{}l}{\emph{Simple baselines (no training):}} \\
-Persistence & 50.73 & 0.269 & 17.35 & 42.04 & 47.79  \\
-Seasonal naive (24h) & 41.40 & 0.479 & 41.47 & 42.04 & 41.52  \\
-Hour-of-week average & 63.48 & -0.052 & 63.97 & 64.11 & 64.10  \\
-Ridge (train stations only) & 47.48 & 0.378 & 16.66 & 39.52 & 44.79  \\
-Network mean (persistence) & 47.01 & 0.402 & 28.45 & 40.83 & 45.11  \\
-IDW neighbour (persistence) & 47.65 & 0.376 & 28.77 & 41.86 & 46.28  \\
-IDW neighbour (seasonal) & 41.24 & 0.506 & 41.39 & 41.77 & 41.31  \\
-\midrule
-\multicolumn{6}{@{}l}{\emph{Mode both, nd30 (own history hidden, node dropout):}} \\
-STGCN distance & 42.32 $\pm$ 0.46 & 0.441 & 36.06 & 43.54 & 45.38  \\
-STGCN identity & 65.37 $\pm$ 0.02 & -0.111 & 66.01 & 66.15 & 66.07  \\
-STGCN wind aware & 41.68 $\pm$ 0.60 & 0.475 & 35.61 & 42.59 & 44.22  \\
-GraphWaveNet distance & 41.82 $\pm$ 0.28 & 0.459 & 36.18 & 42.45 & 45.01  \\
-GraphWaveNet identity & 65.58 $\pm$ 0.29 & -0.116 & 66.12 & 66.40 & 66.31  \\
-GraphWaveNet wind aware & 41.88 $\pm$ 0.51 & 0.493 & 35.20 & 42.05 & 44.00  \\
-\midrule
-\multicolumn{6}{@{}l}{\emph{Mode both, no nd30 (own history hidden, no node dropout):}} \\
-STGCN distance & 54.33 $\pm$ 1.24 & 0.130 & 61.23 & 55.53 & 53.88  \\
-STGCN identity & 69.20 $\pm$ 1.07 & -0.345 & 66.54 & 70.42 & 70.35  \\
-STGCN wind aware & 55.54 $\pm$ 0.48 & 0.113 & 63.47 & 56.64 & 54.49  \\
-GraphWaveNet distance & 55.45 $\pm$ 2.30 & 0.089 & 61.36 & 56.86 & 56.70  \\
-GraphWaveNet identity & 70.68 $\pm$ 1.27 & -0.394 & 77.10 & 71.99 & 70.14  \\
-GraphWaveNet wind aware & 57.82 $\pm$ 1.03 & 0.020 & 62.24 & 58.78 & 57.79  \\
-\midrule
-\multicolumn{6}{@{}l}{\emph{Mode target (own history visible, target hidden):}} \\
-STGCN distance & 35.98 $\pm$ 0.12 & 0.582 & 16.18 & 36.57 & 40.40  \\
-STGCN identity & 35.35 $\pm$ 0.01 & 0.612 & 15.94 & 35.84 & 39.49  \\
-STGCN wind aware & 35.73 $\pm$ 0.06 & 0.600 & 16.19 & 36.12 & 39.79  \\
-GraphWaveNet distance & 36.70 $\pm$ 0.42 & 0.597 & 16.30 & 37.27 & 40.73  \\
-GraphWaveNet identity & 35.67 $\pm$ 0.05 & 0.613 & 16.09 & 36.03 & 39.50  \\
-GraphWaveNet wind aware & 36.27 $\pm$ 0.08 & 0.597 & 16.18 & 36.70 & 40.90  \\
-\end{longtable}
+\end{tabular}%
+}
+\end{table}
 
 \begin{table}[htbp]
 \centering
 \small
-\caption{Leave-station-out, paired bootstrap over test weeks (A minus B; negative means A is better). Condition column states the LSO mode and whether node dropout was used.}
-\begin{tabularx}{\textwidth}{p{5.0cm} p{2.2cm} r p{2.8cm} X}
+\caption{Leave-station-out paired bootstrap (A minus B; negative = A better).
+Rows 1--9 are \emph{mode~target} (own history visible). Rows 10--18 are
+\emph{mode~both} (own history hidden; fair comparators: spatial baselines).}
+\label{tab:lsoboot}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrc}
 \toprule
-comparison & condition & $\Delta$MAE & 95\% CI & $P(A<B)$  \\
+comparison & $\Delta$MAE & 95\% CI & $P(A<B)$ \\
 \midrule
-stgcn wind vs.\ stgcn identity & both, nd30 & +0.38 & [-0.05, 0.84] & 0.042  \\
-stgcn distance vs.\ stgcn identity & both, nd30 & +0.63 & [0.01, 1.29] & 0.023  \\
-gwn wind vs.\ gwn identity & both, nd30 & +0.60 & [0.09, 1.17] & 0.011  \\
-gwn distance vs.\ gwn identity & both, nd30 & +1.03 & [0.47, 1.60] & 0.000  \\
-stgcn identity vs.\ ridge & target & -12.13 & [-14.11, -10.27] & 1.000  \\
-stgcn identity vs.\ seasonal naive & target & -6.05 & [-7.53, -4.75] & 1.000  \\
-stgcn distance vs.\ IDW seasonal & both, nd30 & -5.27 & [-6.51, -4.09] & 1.000  \\
-stgcn identity vs.\ IDW seasonal & target & -5.89 & [-7.14, -4.77] & 1.000  \\
-stgcn identity vs.\ network mean & target & -11.66 & [-13.60, -9.78] & 1.000  \\
-stgcn distance vs.\ stgcn identity & both, no nd30 & -14.87 & [-18.73, -11.08] & 1.000  \\
-stgcn wind vs.\ stgcn identity & both, no nd30 & -13.65 & [-17.56, -9.85] & 1.000  \\
-gwn distance vs.\ gwn identity & both, no nd30 & -15.23 & [-19.08, -11.55] & 1.000  \\
-gwn wind vs.\ gwn identity & both, no nd30 & -12.86 & [-16.18, -9.76] & 1.000  \\
-stgcn distance vs.\ IDW seasonal & both, no nd30 & +13.08 & [8.68, 18.00] & 0.000  \\
-stgcn distance vs.\ IDW persistence & both, no nd30 & +6.67 & [2.74, 11.13] & 0.000  \\
-stgcn distance vs.\ network mean & both, no nd30 & +7.31 & [3.32, 11.73] & 0.000  \\
-gwn distance vs.\ IDW seasonal & both, no nd30 & +14.20 & [9.43, 19.55] & 0.000  \\
-IDW seasonal vs.\ network mean & both, no nd30 & -5.77 & [-7.39, -4.24] & 1.000  \\
-stgcn distance vs.\ stgcn identity & target & -23.04 & [-28.08, -18.38] & 1.000  \\
-stgcn wind vs.\ stgcn identity & target & -23.69 & [-28.96, -18.73] & 1.000  \\
-stgcn distance vs.\ IDW seasonal & target & +1.08 & [-0.41, 2.75] & 0.082  \\
-stgcn distance vs.\ network mean & target & -4.68 & [-6.29, -2.99] & 1.000  \\
-gwn distance vs.\ IDW seasonal & target & +0.58 & [-0.88, 2.22] & 0.242  \\
+\multicolumn{4}{l}{\emph{Mode target (own history visible):}} \\
+stgcn wind aware vs stgcn identity   & $+$0.39 & [$-$0.04, $+$0.85] & 0.038 \\
+stgcn distance vs stgcn identity     & $+$0.59 & [$-$0.01, $+$1.22] & 0.026 \\
+gwn wind aware vs gwn identity       & $+$0.60 & [$+$0.09, $+$1.15] & 0.010 \\
+gwn distance vs gwn identity         & $+$0.97 & [$+$0.41, $+$1.53] & 0.000 \\
+stgcn identity vs ridge              & $-$12.13 & [$-$14.11, $-$10.27] & 1.000 \\
+stgcn identity vs seasonal naive     & $-$6.06 & [$-$7.53, $-$4.76] & 1.000 \\
+stgcn distance vs idw seasonal       & $-$5.31 & [$-$6.54, $-$4.14] & 1.000 \\
+stgcn identity vs idw seasonal       & $-$5.90 & [$-$7.14, $-$4.77] & 1.000 \\
+stgcn identity vs network mean       & $-$11.67 & [$-$13.61, $-$9.79] & 1.000 \\
+\midrule
+\multicolumn{4}{l}{\emph{Mode both (own history hidden; fair comparators: spatial baselines):}} \\
+stgcn distance vs stgcn identity     & $-$14.92 & [$-$18.78, $-$11.12] & 1.000 \\
+stgcn wind aware vs stgcn identity   & $-$13.66 & [$-$17.57, $-$9.87] & 1.000 \\
+gwn distance vs gwn identity         & $-$14.75 & [$-$18.51, $-$11.13] & 1.000 \\
+gwn wind aware vs gwn identity       & $-$12.72 & [$-$16.05, $-$9.64] & 1.000 \\
+stgcn distance vs idw seasonal       & $+$13.10 & [$+$8.69, $+$18.04] & 0.000 \\
+stgcn distance vs idw persistence    & $+$6.69 & [$+$2.75, $+$11.15] & 0.000 \\
+stgcn distance vs network mean       & $+$7.33 & [$+$3.33, $+$11.75] & 0.000 \\
+gwn distance vs idw seasonal         & $+$14.39 & [$+$9.57, $+$19.77] & 0.000 \\
+idw seasonal vs network mean         & $-$5.77 & [$-$7.39, $-$4.24] & 1.000 \\
 \bottomrule
-\end{tabularx}
-\end{table}
-
-\subsection{Does node dropout rescue the graph?}
-\label{sec:nodedropout}
-The caveat above is testable. If the plain leave-station-out result was a handicap---the models never having practised a station whose own history was missing---then training them with node dropout should close the gap. In node dropout, each training window hides a random 30\% of the stations' own history, and the model must still predict those stations, from the graph. The held-out condition is then one the model has seen many times in training.
-
-It closes most of the gap, and that changes the conclusion. Without node dropout the seed-averaged STGCN distance model scores 54.33 against the interpolation baseline's 41.24---a deficit of 13.1 $\mu$g/m$^3$ (best single seed 53.45, deficit 12.2). With node dropout, the seed-averaged STGCN wind-aware model scores 41.68 and the Graph WaveNet wind-aware model 41.88, against the same 41.24: deficits of 0.44 and 0.64, and the paired bootstrap for STGCN-distance-vs-IDW now puts the difference at 1.08 $\mu$g/m$^3$ with an interval of [-0.41, 2.75] that straddles zero. In other words, once the model has practised the condition, a graph neural network and an inverse-distance-weighted average of the neighbours are statistically indistinguishable, while both are clearly better than the network-wide mean.
-
-So the honest statement is neither the one that the plain leave-station-out result suggested nor its opposite. The plain leave-station-out experiment was dominated by a handicap: the models had never been asked to forecast a station without its own history, and that cost them most of the apparent deficit. With the handicap removed, the graph neither rescues the case for spatial structure nor is refuted by it---it matches a two-line distance weighting, and beats a network-wide average by 4.7 $\mu$g/m$^3$ (STGCN wind 41.68 vs.\ network mean 47.01). For the main experiment the conclusion is unchanged, because there the station's own history is available and the graph is simply a cost.
-
-\begin{table}[htbp]
-\centering
-\caption{Node-dropout ablation: the models are trained with a random 30\% of stations' own history hidden in each training window. MAE on the held-out stations, own history hidden. The seed averages are computed from the per-seed runs in Table~\ref{tab:lso}.}
-\begin{tabular}{lrr}
-\toprule
-configuration & MAE & $R^2$  \\
-\midrule
-Persistence & 50.73 & 0.269  \\
-Seasonal naive (24h) & 41.40 & 0.479  \\
-Hour-of-week average & 63.48 & -0.052  \\
-Ridge (fit on training stations only) & 47.48 & 0.378  \\
-Network mean (persistence) & 47.01 & 0.402  \\
-IDW neighbour (persistence) & 47.65 & 0.376  \\
-IDW neighbour (seasonal) & 41.24 & 0.506  \\
-\midrule
-STGCN distance, nd30 & 42.32 $\pm$ 0.46 & 0.441  \\
-STGCN identity, nd30 & 65.37 $\pm$ 0.02 & -0.111  \\
-STGCN wind aware, nd30 & 41.68 $\pm$ 0.60 & 0.475  \\
-GraphWaveNet distance, nd30 & 41.82 $\pm$ 0.28 & 0.459  \\
-GraphWaveNet identity, nd30 & 65.58 $\pm$ 0.29 & -0.116  \\
-GraphWaveNet wind aware, nd30 & 41.88 $\pm$ 0.51 & 0.493  \\
-\bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 
 \subsection{Severe episodes}
-Episodes are sustained periods with PM2.5 above 150 $\mu$g/m$^3$ for at least 6 hours. The network-wide episode-hour fraction is 15.6\%.
+\label{sec:episodes}
+
+Episodes are sustained periods with PM2.5 above 150~$\mu$g/m$^3$ for at least
+6 hours.  The network-wide episode-hour fraction is 15.6\%.
 
 \begin{table}[htbp]
 \centering
-\caption{Test performance inside and outside severe episodes ($\mu$g/m$^3$). Episode error is roughly 2.4$\times$ non-episode error for every architecture.}
+\small
+\caption{Test performance inside and outside severe episodes ($\mu$g/m$^3$).
+Episode error is roughly 2--3$\times$ non-episode error for every architecture.}
+\label{tab:episodes}
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{lrrr}
 \toprule
 Model & Overall MAE & Episode MAE & Non-episode MAE \\
 \midrule
-stgcn\_identity & 32.66 & 42.31 & 17.90 \\
-stgcn\_wind\_aware & 33.05 & 42.92 & 17.93 \\
-stgcn\_distance & 33.18 & 43.16 & 17.91 \\
-graph\_wavenet\_identity & 33.44 & 43.34 & 18.29 \\
-graph\_wavenet\_wind\_aware & 33.77 & 43.84 & 18.35 \\
-graph\_wavenet\_distance & 34.60 & 45.06 & 18.58 \\
+stgcn\_identity\_netmean & 32.65 & 78.78 & 23.60 \\
+stgcn\_identity          & 32.65 & 78.84 & 23.60 \\
+stgcn\_wind\_aware       & 33.12 & 78.91 & 24.14 \\
+stgcn\_distance          & 33.24 & 80.07 & 24.06 \\
+graph\_wavenet\_identity & 33.69 & 80.50 & 24.52 \\
+graph\_wavenet\_wind\_aware & 33.81 & 81.62 & 24.44 \\
+graph\_wavenet\_distance & 34.56 & 82.45 & 25.18 \\
+Ridge(24 lags)           & 43.97 & 98.10 & 33.36 \\
+Persistence              & 46.65 & 102.57 & 35.69 \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 
-One feature of the per-horizon tables deserves a note: the error of the baselines is not monotone in the horizon, with the 12-hour column worse than the 24-hour column. This is a property of the data rather than an artefact of the evaluation. Delhi's PM2.5 has a strong diurnal cycle with a peak-to-trough amplitude of 51 $\mu$g/m$^3$, so a 12-hour horizon lands on the opposite phase of that cycle while a 24-hour horizon returns to the same phase. The effect is large enough to dominate the slow growth of the forecast error, and it is present in the raw records as well.
+Every architecture degrades sharply during episodes: episode error is roughly
+3.3$\times$ the non-episode error (e.g.\ STGCN identity: 78.84 vs.\
+23.60~$\mu$g/m$^3$).  Although episode hours are only 15.6\% of test hours,
+they account for approximately 38\% of the total absolute error, so the
+error budget is disproportionately dominated by episodes.  Outside episodes
+the spread between configurations is modest: the non-episode MAE ranges from
+23.60 (STGCN identity) to 25.18 (GWN distance), a gap of 1.6~$\mu$g/m$^3$.
+
+Note that the per-seed episode MAEs in this table are computed on 1{,}200
+evenly-spaced windows and the seed-averaging is approximate, so the ``overall
+MAE'' column here (32.65) differs slightly from the 2{,}000-window figure in
+Table~\ref{tab:main} (32.61); all comparisons should use Table~\ref{tab:main}.
 
 \section{Discussion}
+
 \subsection{What the graph comparison shows}
-All four graph structures were trained and evaluated identically, with eight seeds each for the two graph architectures, and judged with a paired bootstrap over the 105 ISO weeks of the test period, which respects the temporal correlation in the errors in a way that a per-seed standard deviation does not. The differences that follow are statistically clear but small in absolute terms: the largest gap between graph structures is about 1.3 $\mu$g/m$^3$ on a score of roughly 33, i.e.\ around 4\%, and the gap between the best and the worst configuration is about 3\%. A reader should weigh the claims below accordingly: the ordering is reproducible and the confidence intervals exclude zero, but a 3\% difference in PM2.5 forecasting error is not a difference that would change an operational decision on its own. The margin that does matter is against the simple baselines, and it is large: the best model beats the best simple baseline at every horizon, by 15.5\% in aggregate.
 
-The picture is specific rather than a blanket negative. For Graph WaveNet the wind-aware graph is significantly better than the static distance graph: 33.77 against 34.60 $\mu$g/m$^3$, a paired difference of 0.83 with a 95\% confidence interval of [0.49, 1.18]. For STGCN the same comparison is inconclusive: 33.05 against 33.18, a difference of 0.13 whose interval of [-0.04, 0.32] straddles zero. What holds for both architectures is that dropping the distance graph entirely beats keeping it (0.51 for STGCN, CI [0.15, 0.90]; 1.16 for Graph WaveNet, CI [0.58, 1.76]); against the wind-aware graph the differences are 0.38 (STGCN, CI [0.08, 0.71]) and 0.33 (Graph WaveNet, CI [-0.03, 0.71]), the latter not significant. The strongest version of the no-graph claim comes from Graph WaveNet's self-adaptive adjacency, which is learned end-to-end from the data rather than designed by us: it is the worst graph of the four at 34.70, losing to no graph by 1.26 $\mu$g/m$^3$ (CI [0.56, 2.03]) and to the wind-aware graph by 0.94 (CI [0.50, 1.41]).
+All five graph structures were trained and evaluated identically, with 3 seeds,
+and judged with a paired bootstrap over the 105 ISO weeks of the test period.
+The differences are statistically clear but small in absolute terms:
+between graph structures the gap reaches 1.1--1.5~$\mu$g/m$^3$ (3--4.5\%),
+and the range from best (no graph, 32.61) to worst configuration
+(GWN correlation, 35.03) is 2.4~$\mu$g/m$^3$ (7\%).
 
-Two diagnostics turn the ranking into an explanation. The network-mean diagnostic shows that the graph is not delivering the regional signal and being ignored for it: a no-graph model handed the network-wide mean PM2.5 as an extra input channel gains 0.06 $\mu$g/m$^3$ (CI [-0.11, -0.01], P = 0.988) and is significantly better than every graph model. And the leave-station-out experiment, once node dropout removes the handicap of an unpractised condition, shows that the graph and an inverse-distance-weighted average of neighbours are statistically indistinguishable on a station whose own history is missing (1.08 $\mu$g/m$^3$, CI [-0.41, 2.75]).
+The picture is specific rather than a blanket negative.  For Graph WaveNet
+the wind-aware graph is significantly better than the static distance graph:
+33.76 against 34.39~$\mu$g/m$^3$, difference 0.63, CI [0.36, 0.91].
+For STGCN the same comparison is inconclusive: 33.06 against 33.18, difference
+0.12, CI [$-$0.15, 0.41].
 
-Our answer to the research question is therefore narrow but defensible. A wind-aware graph beats a static distance graph in one of the two architectures and ties it in the other. Neither justifies mixing stations, and a learned graph does not either. Where a graph is clearly worthless is the case we went looking for it in---a station the model has never seen and whose own history is missing---but with node dropout even that gap closes to statistical insignificance. The honest reading is that at this station density, inter-station mixing provides no gain over a two-line distance weighting even in the regime designed to favour it.
+What holds for both architectures is that every graph type is significantly
+worse than no graph, or at best indistinguishable from it.  The distance graph
+is significantly worse (STGCN $+$0.57, CI [0.14, 1.01]; GWN $+$0.82,
+CI [0.36, 1.30]).  The wind-aware graph is also significantly worse than no
+graph for STGCN ($+$0.45, CI [0.15, 0.79]); for Graph WaveNet the difference
+($+$0.19, CI [$-$0.15, 0.55]) is not significant.  The correlation graph is the
+worst configuration overall (GWN 35.03, $+$1.46 vs.\ no graph, CI [0.70, 2.29];
+STGCN 33.47, $+$0.86, CI [0.27, 1.49]).  The learned adaptive adjacency is the
+second worst GWN configuration ($+$1.09, CI [0.37, 1.87]).
 
-The honest limitation of that answer is that we tested one construction of a wind-aware graph, against one alternative wind source. A time-lagged advection kernel, a finer wind field, or gradient-driven edge weights are different constructions, and this study does not speak to them.
+The ERA5 ablation shows the wind source is not the issue.  Neither wind source
+makes the graph significantly worse than no graph (both CIs include zero at the
+margins), and neither makes it significantly better.  The null result is not an
+artefact of the noisy or missing local wind.
 
-A plausible reading is that the stations are too far apart, and too few, for transport to be the binding constraint. The median separation between station pairs is 16.4 km and a quarter of the pairs are more than 23 km apart; with 42 stations spread over Delhi, Noida and Ghaziabad, a 48-hour horizon is governed by the regional pollution trajectory rather than by the gradient between any two neighbouring monitors. The failure analysis below shows where the difficulty actually is.
+Two diagnostics sharpen the interpretation.  The network-mean diagnostic shows
+the graph is not delivering the regional signal (0.01~$\mu$g/m$^3$ explicitly
+vs.\ the graph's mixing cost of 0.19--0.82).  The leave-station-out result
+shows that in the regime designed to favour graph structure---a station with no
+history of its own---a graph neural network trained without node dropout does
+not match simple spatial interpolation; it is 13.1~$\mu$g/m$^3$ worse than
+IDW-seasonal.
+
+Our answer to the research question is narrow but defensible.  A wind-aware
+graph beats a static distance graph for Graph WaveNet and is indistinguishable
+from it for STGCN.  In both architectures, every graph type is either
+significantly worse than no graph or indistinguishable from it; none is
+significantly better.  The wind-aware graph is significantly worse than no
+graph for STGCN (0.45, CI [0.15, 0.79]) and not significantly different for
+Graph WaveNet (0.19, CI [$-$0.15, 0.55]).  The correlation graph and the
+learned adaptive adjacency are the two worst configurations.  Two diagnostics
+say why: the regional-signal diagnostic shows the graph's mixing cost
+(0.19--1.46~$\mu$g/m$^3$ across graph types and architectures) is not
+delivering a useful signal; and the leave-station-out result shows the graph
+trained without node dropout cannot match simple spatial interpolation in the
+missing-history regime.
 
 \subsection{Failure analysis}
-Three failure modes account for most of the residual error. First, abrupt anthropogenic spikes (Diwali, crop-residue burning) are not predictable from meteorology or neighbouring stations, and every model smooths them away. Second, sensor outages and stale readings produce flat segments that the models cannot anticipate, though the mask channel at least prevents them from being treated as real signal. Third, and most importantly, severe episodes are under-dispersed: models trained on mostly-clean conditions regress toward the conditional mean and under-predict the peaks, which is why episode error is roughly 2.4$\times$ the non-episode error for every architecture. A quantile or extremal loss, or a peak-weighted training schedule, is the obvious next step and is not attempted here.
+
+Three failure modes account for most of the residual error.  First, abrupt
+anthropogenic spikes (Diwali, crop-residue burning) are not predictable from
+meteorology or neighbouring stations, and every model smooths them away.
+Second, sensor outages produce stale readings that the mask channel at least
+flags.  Third, severe episodes are under-predicted: the model's autoregressive
+signal is a poor guide when concentrations are building non-linearly, which is
+why episode error is roughly 3.3$\times$ the non-episode error for every
+architecture.
 
 \subsection{Limitations}
+
 \begin{itemize}
-    \item Seven years of data, but the test block covers only two winters, so generalisation across pollution regimes is still only partly tested. The rolling-origin evaluation in Section~\ref{sec:expanding} is our partial answer to this.
-    \item The wind-aware graph is \emph{static}: it uses a per-station period-mean prevailing direction, not a time-varying one. A genuinely dynamic wind-aware graph is a different construction and is not tested here.
-    \item The distance kernel uses $\sigma = 5$\,km against a median station spacing of 16.4\,km, which makes the kernel nearly diagonal; a larger-$\sigma$ or $k$-nearest-neighbour distance graph is a different construction and is not tested here.
-    \item Weather is measured at each station rather than taken from a reanalysis, so the wind field carries real local structure; but the per-station wind vectors agree only weakly (mean cross-station correlation of the u-component is 0.11), so the period-mean direction used to orient the graph is itself a noisy quantity.
-    \item ``Dilutes the autoregressive signal'' is a hypothesis consistent with the ablation, the network-mean diagnostic and the node-dropout result, but it is not directly demonstrated; a gated or residual graph branch with explicit self-loops would test it.
-    \item Single-direction, single-hazard forecast; the models do not condition on the previous episode's duration.
-    \item Graph structures are static except for Graph WaveNet's adaptive variant.
+  \item The test block covers two winters; generalisation across pollution
+    regimes is only partly tested.
+  \item The wind-aware graph is \emph{static}: it uses a period-mean prevailing
+    direction, not a time-varying one.  A dynamic wind-aware graph is a
+    different construction not tested here.
+  \item The distance kernel uses $\sigma=5$~km against a median station spacing
+    of $\sim$16~km, which makes the kernel nearly diagonal.  A larger-$\sigma$
+    or $k$-nearest-neighbour distance graph is a different construction.
+  \item Nine of the 42 stations report no wind at all.  The ERA5 ablation shows
+    this does not drive the result, but it limits the precision of the
+    station-specific wind direction used to orient the graph.
+  \item ``Dilution of the autoregressive signal'' is a hypothesis consistent
+    with the ablation, the network-mean diagnostic, and the leave-station-out
+    result, but is not directly demonstrated.
+  \item Single region, single hazard; results may not transfer to other cities
+    or pollutants.
+  \item Graph structures are static except Graph WaveNet's learned variant.
+  \item Leave-station-out models were trained without node dropout; the
+    missing-history comparison therefore contains a known handicap.
 \end{itemize}
 
 \section{Conclusion}
-Across seven years of real observations at 42 stations, every neural model we trained beats ridge regression on the last 24 lags and persistence. Most, but not all, beat the seasonal-naive baseline: the Transformer and the multivariate LSTM do not, and the multivariate LSTM's margin over seasonal naive is not statistically distinguishable from zero (0.43 $\mu$g/m$^3$, CI [-2.46, 1.89]). The best model beats the best simple baseline by 15.5\% in aggregate and by a positive margin at every horizon.
 
-The graph question has a more specific answer than a simple negative. A wind-aware directed graph does beat a static distance graph for Graph WaveNet (0.83 $\mu$g/m$^3$, 95\% CI [0.49, 1.18] by paired bootstrap over test weeks) and is indistinguishable from it for STGCN (0.13, CI [-0.04, 0.32]). In both architectures, dropping the graph entirely beats keeping the distance graph; against the wind-aware graph, the no-graph advantage is significant for STGCN and not significant for Graph WaveNet. A graph learned end-to-end is the worst of the four. Two diagnostics say why. Handing a no-graph model the network-wide mean PM2.5 as an extra input feature gains almost nothing (0.06 $\mu$g/m$^3$), so the graph is not delivering the regional signal. And on a station the model has never seen and whose own history is missing, a graph neural network trained with node dropout matches a distance-weighted average of the neighbours (1.08 $\mu$g/m$^3$, CI [-0.41, 2.75]) rather than beating it, and beats a network-wide mean by 4.7 $\mu$g/m$^3$.
+Across seven years of real observations at 42 stations, every neural model we
+trained beats ridge regression and persistence.  Most beat seasonal naive; the
+multivariate LSTM is modestly better ($-$1.91~$\mu$g/m$^3$, CI [$-$3.60,
+$-$0.05], about 5\%), and the Transformer is worse ($+$0.18).  The best model
+beats the best simple baseline by 15.6\% in aggregate (32.61 vs.\ 38.63,
+CI [4.82, 7.37]) and by a positive margin at every horizon.
 
-The consistent story is that the per-station autoregressive signal is what matters, and inter-station mixing at this station density does not add to it. The remaining error is concentrated almost entirely in severe pollution episodes, where all architectures degrade sharply and the differences between them are largest. Whether a differently constructed graph pays off on a denser network, a finer temporal resolution, or a longer and more diverse dataset is left open.
+The graph question has a more specific answer than a simple negative.  A
+wind-aware directed graph beats a static distance graph for Graph WaveNet
+(0.63~$\mu$g/m$^3$, CI [0.36, 0.91] by paired bootstrap) and is
+indistinguishable from it for STGCN (0.12, CI [$-$0.15, 0.41]).
+In both architectures, every graph type is either significantly worse than no
+graph or indistinguishable from it.  The wind-aware graph is significantly
+worse than no graph for STGCN (0.45, CI [0.15, 0.79]) and not significantly
+different for Graph WaveNet (0.19, CI [$-$0.15, 0.55]).
+The correlation graph (35.03) and the learned adaptive adjacency (34.66) are
+the two worst GWN configurations; the correlation graph is the worst neural
+model overall.
 
-\section*{Acknowledgments}
-Data from CPCB (via the \texttt{Vonter/india-cpcb-aqi} archive). Code in the accompanying repository.
+Two diagnostics explain why.  Handing a no-graph model the network-wide mean
+PM2.5 gains essentially nothing (0.01~$\mu$g/m$^3$), so the graph is not
+delivering a useful regional signal.  And on a station the model has never seen
+and whose history is missing, a graph neural network trained without node
+dropout is 13.1~$\mu$g/m$^3$ worse than inverse-distance-weighted interpolation
+--- not because the graph is useless, but because the models were trained for
+the regime in which a station's own history is available.
+
+The consistent story is that the per-station autoregressive signal is what
+matters, and inter-station mixing at this station density provides at best a
+small benefit (wind-aware over distance for Graph WaveNet) and at worst a net
+cost (distance graph in both architectures).  The remaining error is
+concentrated almost entirely in severe pollution episodes.  Whether a
+differently constructed graph pays off on a denser network, a finer temporal
+resolution, or a longer and more diverse dataset is left open.
+
+\section*{Acknowledgements}
+Data from CPCB (via the \texttt{Vonter/india-cpcb-aqi} archive).
+Code in the accompanying repository.
 
 \begin{thebibliography}{10}
-\bibitem{graphwavenet} Z.~Wu, S.~Pan, G.~Long, J.~Jiang, C.~Zhang,
-  ``Graph WaveNet for Deep Spatial-Temporal Graph Modeling,''
-  in \textit{Proc.\ 28th International Joint Conference on Artificial Intelligence
-  (IJCAI-19)}, pp.\ 1907--1913, 2019.
-  \url{https://doi.org/10.24963/ijcai.2019/264}
 
-\bibitem{stgcn} B.~Yu, H.~Yin, Z.~Zhu,
-  ``Spatio-Temporal Graph Convolutional Networks: A Deep Learning Framework
-  for Traffic Forecasting,''
-  in \textit{Proc.\ 27th International Joint Conference on Artificial Intelligence
-  (IJCAI-18)}, pp.\ 3634--3640, 2018.
-  \url{https://doi.org/10.24963/ijcai.2018/505}
+\bibitem{graphwavenet}
+Z.~Wu, S.~Pan, G.~Long, J.~Jiang, C.~Zhang,
+``Graph WaveNet for Deep Spatial-Temporal Graph Modeling,''
+\textit{Proc.\ IJCAI-2019}, pp.\ 1907--1913, 2019.
+\url{https://doi.org/10.24963/ijcai.2019/264}
 
-\bibitem{dcrnn} Y.~Li, R.~Yu, C.~Shahabi, Y.~Liu,
-  ``Diffusion Convolutional Recurrent Neural Network: Data-Driven Traffic
-  Forecasting,''
-  in \textit{International Conference on Learning Representations (ICLR)}, 2018.
-  \url{https://openreview.net/forum?id=SJiHXGWAZ}
+\bibitem{stgcn}
+B.~Yu, H.~Yin, Z.~Zhu,
+``Spatio-Temporal Graph Convolutional Networks: A Deep Learning Framework
+for Traffic Forecasting,''
+\textit{Proc.\ IJCAI-2018}, pp.\ 3634--3640, 2018.
+\url{https://doi.org/10.24963/ijcai.2018/505}
 
-\bibitem{pm25gnn} S.~Wang, Y.~Li, J.~Zhang, Q.~Meng, L.~Meng, F.~Gao,
-  ``PM2.5-GNN: A Domain Knowledge Enhanced Graph Neural Network for PM2.5
-  Forecasting,''
-  in \textit{Proc.\ 28th ACM International Conference on Advances in Geographic
-  Information Systems (SIGSPATIAL '20)}, pp.\ 163--166, 2020.
-  \url{https://doi.org/10.1145/3397536.3422208}
+\bibitem{dcrnn}
+Y.~Li, R.~Yu, C.~Shahabi, Y.~Liu,
+``Diffusion Convolutional Recurrent Neural Network: Data-Driven Traffic
+Forecasting,''
+\textit{ICLR 2018}.
+\url{https://openreview.net/forum?id=SJiHXGWAZ}
+
+\bibitem{pm25gnn}
+S.~Wang, Y.~Li, J.~Zhang, Q.~Meng, L.~Meng, F.~Gao,
+``PM2.5-GNN: A Domain Knowledge Enhanced Graph Neural Network for PM2.5
+Forecasting,''
+\textit{Proc.\ ACM SIGSPATIAL 2020}, pp.\ 163--166, 2020.
+\url{https://doi.org/10.1145/3397536.3422208}
+
 \end{thebibliography}
 
 \end{document}

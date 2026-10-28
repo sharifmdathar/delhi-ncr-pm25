@@ -447,9 +447,10 @@ def main():
                     escape_tex(r["name"]) + " & " + f"{r['mae']:.2f} & "
                     + f"{r['r2']:.3f} & " + f"{r['h1']:.2f} & " + f"{r['h24']:.2f} & "
                     + f"{r['h48']:.2f} " + ROW_END)
-            head = ("\\textbf{Mode " + mode + "} --- held out: "
+            head = ("\\multicolumn{6}{l}{\\textbf{Mode " + mode
+                    + "} \\textemdash{} \\small held out: "
                     + ", ".join(escape_tex(x) for x in grp.get("holdout_stations", []))
-                    + " " + ROW_END)
+                    + "} " + ROW_END)
             blocks.append(head + "\n" + "\n".join(rows_l))
         lso_tbl = (
             "\\begin{table}[H]\n\\centering\n"
